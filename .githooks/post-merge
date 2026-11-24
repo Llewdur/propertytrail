@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# Canonical Zekini post-merge hook — tags the release that just landed.
+#
+# The fleet runs no GitHub Actions (owner, 2026-09-06, permanent), so nothing
+# server-side cuts release tags. This hook does it locally, the moment a merge
+# or pull brings a new VERSION onto main: it reads VERSION the way every other
+# surface does (docs/versioning.md §4) and creates the annotated tag vX.Y.Z on
+# the commit that set that number. Ported from loupe's hook (FDA-121, ZST-704).
+#
+# Install (per repo, once):
+#   git config core.hooksPath .githooks
+#   cp <standards>/templates/hooks/post-merge .githooks/post-merge
+#   chmod +x .githooks/post-merge
+#
+# Properties, none optional:
+#   - It never fails the merge. post-merge cannot undo a merge anyway; every
+#     path below exits 0 and says what it did or why it did nothing.
+#   - Only on main. A bumped VERSION on a feature branch has not shipped.
+#   - It tags the commit that LAST CHANGED VERSION, not HEAD — a pull that
+#     brings in several commits after the bump still tags the bump.
+#   - It never pushes. Push the tag with `git push origin vX.Y.Z` (Fleet pushes
+#     the tags it finds new after a run). A gap it missed is backfilled by hand
+#     with the marker "(tag backfilled, card N)" in the message, per
+#     docs/versioning.md §4.2.
+#   - A repo with `artisan release:tag` keeps it as the manual and pre-push
+#     surface (--deployed, --history); this hook needs no Sail, so a merge with
+#     the stack down still tags.
+#
+# Fires on `git merge` and a merging `git pull`; NOT on `git pull --rebase`
+# (git has no post-rebase hook for that). `release:tag --deployed` in pre-push
+# is the backstop for a tag this hook never got the chance to cut.
+
+set -uo pipefail
+
+main_branch="${ZEKINI_MAIN_BRANCH:-main}"
+
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [ "$branch" != "$main_branch" ]; then
+  exit 0
+fi
+
+if [ ! -f VERSION ]; then
+  exit 0
+fi
+
+version="$(tr -d '[:space:]' < VERSION)"
+if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "⚠ post-merge: VERSION reads '$version', not X.Y.Z — no tag cut." >&2
+  exit 0
+fi
+
+tag="v$version"
+
+if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+  exit 0
+fi
+
+echo "▶ post-merge: tagging the release that just landed…"
+
+commit="$(git log -1 --format=%H -- VERSION 2>/dev/null || true)"
+if [ -z "$commit" ]; then
+  echo "⚠ post-merge: no commit in history changed VERSION — no tag cut." >&2
+  exit 0
+fi
+
+if ! git tag -a "$tag" -m "Release $tag" "$commit"; then
+  echo "⚠ post-merge: git tag $tag failed — cut it by hand." >&2
+  exit 0
+fi
+
+echo "Tagged $tag at $(git rev-parse --short "$commit")."
+echo "  Push it: git push origin $tag"
+exit 0

@@ -1,0 +1,397 @@
+variant = "loose"
+
+[[issues]]
+file = "app/Actions/Fortify/CreateNewUser.php"
+code = "incompatible-parameter-type"
+message = 'Parameter `$input` of `App\Actions\Fortify\CreateNewUser::create()` expects type `array<string, mixed>` but parent `Laravel\Fortify\Contracts\CreatesNewUsers::create()` expects type `array<array-key, mixed>`'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/ResetUserPassword.php"
+code = "docblock-type-mismatch"
+message = 'Docblock type `Illuminate\Foundation\Auth\User` for parameter `$user` is incompatible with native type `App\Models\User`.'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/ResetUserPassword.php"
+code = "incompatible-parameter-type"
+message = 'Parameter `$input` of `App\Actions\Fortify\ResetUserPassword::reset()` expects type `array<string, string>` but parent `Laravel\Fortify\Contracts\ResetsUserPasswords::reset()` expects type `array<array-key, mixed>`'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserPassword.php"
+code = "docblock-type-mismatch"
+message = 'Docblock type `Illuminate\Foundation\Auth\User` for parameter `$user` is incompatible with native type `App\Models\User`.'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserPassword.php"
+code = "incompatible-parameter-type"
+message = 'Parameter `$input` of `App\Actions\Fortify\UpdateUserPassword::update()` expects type `array<string, string>` but parent `Laravel\Fortify\Contracts\UpdatesUserPasswords::update()` expects type `array<array-key, mixed>`'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserProfileInformation.php"
+code = "docblock-type-mismatch"
+message = 'Docblock type `Illuminate\Foundation\Auth\User` for parameter `$user` is incompatible with native type `App\Models\User`.'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserProfileInformation.php"
+code = "incompatible-parameter-type"
+message = 'Parameter `$input` of `App\Actions\Fortify\UpdateUserProfileInformation::update()` expects type `array<string, string>` but parent `Laravel\Fortify\Contracts\UpdatesUserProfileInformation::update()` expects type `array<array-key, mixed>`'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserProfileInformation.php"
+code = "less-specific-argument"
+message = 'Argument type mismatch for argument #1 of `App\Actions\Fortify\UpdateUserProfileInformation::updateVerifiedUser`: expected `App\Models\User`, but provided type `Illuminate\Foundation\Auth\User&Illuminate\Contracts\Auth\MustVerifyEmail` is less specific.'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserProfileInformation.php"
+code = "non-documented-property"
+message = 'Ambiguous property access: $email on class `Illuminate\Foundation\Auth\User`.'
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserProfileInformation.php"
+code = "non-documented-property"
+message = 'Ambiguous property access: $id on class `Illuminate\Foundation\Auth\User`.'
+count = 1
+
+[[issues]]
+file = "app/Adapters/FleetAccountingAdapter.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Adapters\FleetAccountingAdapter::createCustomer`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Adapters/ZekiniMailAdapter.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Adapters\ZekiniMailAdapter::send`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Adapters/ZekiniWhatsAppAdapter.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Adapters\ZekiniWhatsAppAdapter::sendMessage`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Factories/EvidenceWriteFactory.php"
+code = "ambiguous-object-method-access"
+message = "Cannot statically verify method call on a generic `object` type."
+count = 1
+
+[[issues]]
+file = "app/Factories/EvidenceWriteFactory.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #3 of `App\Factories\EvidenceWriteFactory::link`: expected `int`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Factories/EvidenceWriteFactory.php"
+code = "unknown-class-instantiation"
+message = "Cannot determine the concrete class for instantiation."
+count = 1
+
+[[issues]]
+file = "app/Factories/OrganisationWriteFactory.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `Illuminate\Support\Str::slug`: expected `string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Factories/UserWriteFactory.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `Illuminate\Support\Facades\Hash::make`: expected `string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/EvidenceController.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #4 of `App\Services\EvidenceIngestionService::ingest`: expected `null|string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/GoogleAuthController.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Http\RedirectResponse|Symfony\Component\HttpFoundation\RedirectResponse` is less specific than the declared return type `Illuminate\Http\RedirectResponse` for function `App\Http\Controllers\Api\GoogleAuthController::redirect`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/GoogleAuthController.php"
+code = "non-documented-property"
+message = 'Ambiguous property access: $google_id on class `App\Models\User`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/OrganisationController.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Factories\UserWriteFactory::attachToOrganisation`: expected `App\Models\User`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/OrganisationController.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Repositories\OrganisationRepository::allForUser`: expected `int`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/OrganisationController.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Repositories\UserRepository::belongsToOrganisation`: expected `App\Models\User`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/SystemController.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Http/Middleware/ResolveCurrentOrganisation.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Models/AreaRoom.php"
+code = "missing-template-parameter"
+message = 'Too few template arguments for `Illuminate\Database\Eloquent\Factories\HasFactory`: expected at least 1, but found 0.'
+count = 1
+
+[[issues]]
+file = "app/Models/AuditLog.php"
+code = "incompatible-property-type"
+message = 'Property `App\Models\AuditLog::$casts` has an incompatible type declaration from docblock.'
+count = 1
+
+[[issues]]
+file = "app/Models/Concerns/Auditable.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Models/Concerns/Auditable.php"
+code = "possibly-non-existent-method"
+message = 'Static method `created` might not exist on type `App\Models\Concerns\Auditable` at runtime.'
+count = 1
+
+[[issues]]
+file = "app/Models/Concerns/Auditable.php"
+code = "possibly-non-existent-method"
+message = 'Static method `deleted` might not exist on type `App\Models\Concerns\Auditable` at runtime.'
+count = 1
+
+[[issues]]
+file = "app/Models/Concerns/Auditable.php"
+code = "possibly-non-existent-method"
+message = 'Static method `updated` might not exist on type `App\Models\Concerns\Auditable` at runtime.'
+count = 1
+
+[[issues]]
+file = "app/Models/Concerns/BelongsToOrganisation.php"
+code = "non-existent-property"
+message = 'Property `$organisation_id` does not exist on trait `App\Models\Concerns\BelongsToOrganisation`.'
+count = 1
+
+[[issues]]
+file = "app/Models/Concerns/OrganisationScoped.php"
+code = "non-documented-property"
+message = 'Ambiguous property access: $organisation_id on class `Illuminate\Database\Eloquent\Model`.'
+count = 2
+
+[[issues]]
+file = "app/Models/Concerns/OrganisationScoped.php"
+code = "possibly-non-existent-method"
+message = 'Static method `addGlobalScope` might not exist on type `App\Models\Concerns\OrganisationScoped` at runtime.'
+count = 1
+
+[[issues]]
+file = "app/Models/Concerns/OrganisationScoped.php"
+code = "possibly-non-existent-method"
+message = 'Static method `creating` might not exist on type `App\Models\Concerns\OrganisationScoped` at runtime.'
+count = 1
+
+[[issues]]
+file = "app/Models/EvidenceLink.php"
+code = "missing-template-parameter"
+message = 'Too few template arguments for `Illuminate\Database\Eloquent\Factories\HasFactory`: expected at least 1, but found 0.'
+count = 1
+
+[[issues]]
+file = "app/Models/EvidenceRecord.php"
+code = "incompatible-property-type"
+message = 'Property `App\Models\EvidenceRecord::$casts` has an incompatible type declaration from docblock.'
+count = 1
+
+[[issues]]
+file = "app/Models/EvidenceRecord.php"
+code = "missing-template-parameter"
+message = 'Too few template arguments for `Illuminate\Database\Eloquent\Factories\HasFactory`: expected at least 1, but found 0.'
+count = 1
+
+[[issues]]
+file = "app/Models/Organisation.php"
+code = "incompatible-property-type"
+message = 'Property `App\Models\Organisation::$casts` has an incompatible type declaration from docblock.'
+count = 1
+
+[[issues]]
+file = "app/Models/Organisation.php"
+code = "missing-template-parameter"
+message = 'Too few template arguments for `Illuminate\Database\Eloquent\Factories\HasFactory`: expected at least 1, but found 0.'
+count = 1
+
+[[issues]]
+file = "app/Models/OrganisationUser.php"
+code = "incompatible-property-type"
+message = 'Property `App\Models\OrganisationUser::$casts` has an incompatible type declaration from docblock.'
+count = 1
+
+[[issues]]
+file = "app/Models/Property.php"
+code = "incompatible-property-type"
+message = 'Property `App\Models\Property::$casts` has an incompatible type declaration from docblock.'
+count = 1
+
+[[issues]]
+file = "app/Models/Property.php"
+code = "missing-template-parameter"
+message = 'Too few template arguments for `Illuminate\Database\Eloquent\Factories\HasFactory`: expected at least 1, but found 0.'
+count = 1
+
+[[issues]]
+file = "app/Models/User.php"
+code = "docblock-type-mismatch"
+message = 'Docblock return type `Illuminate\Database\Eloquent\Relations\BelongsToMany<App\Models\Organisation, App\Models\User&static, App\Models\OrganisationUser>` is incompatible with native return type `Illuminate\Database\Eloquent\Relations\BelongsToMany`.'
+count = 1
+
+[[issues]]
+file = "app/Models/User.php"
+code = "invalid-return-statement"
+message = '''Invalid return type for function `App\Models\User::organisations`: expected `Illuminate\Database\Eloquent\Relations\BelongsToMany<App\Models\Organisation, app\models\user&static, App\Models\OrganisationUser, string('pivot')>`, but found `$this(Illuminate\Database\Eloquent\Relations\BelongsToMany<App\Models\Organisation, app\models\user&static, unknown-ref(Illuminate\Database\Eloquent\Relations\Pivot), string('pivot')>)`.'''
+count = 1
+
+[[issues]]
+file = "app/Models/User.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<array-key, int>&static` is less specific than the declared return type `Illuminate\Support\Collection<int, int>` for function `App\Models\User::organisationIds`.'
+count = 1
+
+[[issues]]
+file = "app/Models/User.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 2
+
+[[issues]]
+file = "app/Models/User.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 1
+
+[[issues]]
+file = "app/Models/User.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Models\User::roleIn`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Providers/AppServiceProvider.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #2 of `Laravel\Socialite\Socialite::buildProvider`: expected `array<array-key, mixed>`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Providers/AppServiceProvider.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `Illuminate\Support\Str::lower`: expected `string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "mixed-operand"
+message = "Invalid left operand: type `nonnull` cannot be reliably used in string concatenation."
+count = 1
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "possibly-null-operand"
+message = "Possibly null right operand used in string concatenation (type `null|string`)."
+count = 2
+
+[[issues]]
+file = "app/Repositories/AreaRoomRepository.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\AreaRoom>` for function `App\Repositories\AreaRoomRepository::allForProperty`.'
+count = 1
+
+[[issues]]
+file = "app/Repositories/AuditLogRepository.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\AuditLog>` for function `App\Repositories\AuditLogRepository::recent`.'
+count = 1
+
+[[issues]]
+file = "app/Repositories/EvidenceRepository.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\EvidenceRecord>` for function `App\Repositories\EvidenceRepository::all`.'
+count = 1
+
+[[issues]]
+file = "app/Repositories/OrganisationRepository.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\Organisation>` for function `App\Repositories\OrganisationRepository::allForUser`.'
+count = 1
+
+[[issues]]
+file = "app/Repositories/PropertyRepository.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\Property>` for function `App\Repositories\PropertyRepository::all`.'
+count = 1
+
+[[issues]]
+file = "app/Repositories/UserRepository.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\User>` for function `App\Repositories\UserRepository::all`.'
+count = 1
+
+[[issues]]
+file = "app/Services/EvidenceIngestionService.php"
+code = "invalid-type-cast"
+message = "Non numeric string of type `string` implicitly cast to `float`."
+count = 2
+
+[[issues]]
+file = "app/Services/EvidenceIngestionService.php"
+code = "less-specific-argument"
+message = 'Argument type mismatch for argument #1 of `App\Services\EvidenceIngestionService::gpsCoordinate`: expected `array<string, mixed>`, but provided type `array<array-key, mixed>` is less specific.'
+count = 2
+
+[[issues]]
+file = "app/Services/EvidenceIngestionService.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #3 of `App\Services\EvidenceIngestionService::gpsCoordinate`: expected `string`, but found `nonnull`.'
+count = 2
+
+[[issues]]
+file = "app/Services/EvidenceIngestionService.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1

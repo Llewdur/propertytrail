@@ -1,0 +1,47 @@
+# Canonical mago config. mago is the ONLY PHP quality tool — it replaces
+# Pint (format), PHP_CodeSniffer (lint) AND PHPStan/Larastan (analyse).
+# Do NOT add phpstan/larastan/pint back to any repo.
+#
+# Copy to the repo root. Generate baselines once per repo:
+#   ./vendor/bin/sail composer lint    # then commit mago-lint-baseline.toml
+#   ./vendor/bin/sail composer analyse # then commit mago-analyse-baseline.toml
+
+[source]
+paths = ["app", "database/factories", "database/seeders"]
+includes = ["vendor"]
+
+[linter]
+integrations = ["laravel"]
+baseline = "mago-lint-baseline.toml"
+minimum-fail-level = "error"
+
+[linter.rules.excessive-parameter-list]
+threshold = 10
+
+# Maintainability heuristics are noisy on data-bag DTOs and orchestration
+# factories; keep the substantive rules, drop the score-based ones.
+[linter.rules.kan-defect]
+enabled = false
+
+[linter.rules.halstead]
+enabled = false
+
+# --- Rules the fleet has decided NOT to follow (ZS-57, 2026-08-05) ---
+# These are OFF, not baselined. A baseline entry says "we will get to this"; a
+# disabled rule says "we decided not to". Only the second one is true here.
+# Every disabled rule below carries its reason beside it — a rule switched off
+# without one is indistinguishable from one switched off to make a build pass.
+# This rule set is fleet-wide: do not fork it per repo. Per-repo *threshold*
+# bumps (like excessive-parameter-list above) are fine and stay per-repo.
+
+# Wants `rtrim(string: $path, characters: '/')` for `rtrim($path, '/')`. Named
+# arguments on stdlib one-liners are not a style this fleet will adopt, and the
+# rule was 177 of 238 lint warnings on loupe (74%) — on its own, it is why the
+# warning list had been ignored for the entire life of the config.
+[linter.rules.literal-named-argument]
+enabled = false
+
+# `bool $dryRun` is a deliberate, readable convention in this fleet's console
+# commands, not an accident of design.
+[linter.rules.no-boolean-flag-parameter]
+enabled = false

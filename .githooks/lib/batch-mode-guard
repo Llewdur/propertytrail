@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+#
+# Batch mode vs SKIP_SLOW_TESTS: warn when the two halves disagree (ZST-1097).
+#
+# Local (session) batch mode is SIX switches, and two of them are the ones this
+# checks (docs/batch-mode.md, "What batch mode is, in one table"):
+#
+#   central `repos_off`  the repo listed  => the repo IS in batch mode
+#   local SKIP_SLOW_TESTS                 => the slow suites and browser group are deferred
+#
+# Either one without the other is a half-entered batch: Kadro's session flipped only
+# the board flag and the next push ran the full browser group; Loupe did its central
+# flip and a session that flipped only `.env` would have the conductor taking the
+# repo's cards while the session codes them. The pre-push hook calls this to say so
+# loudly. It WARNS; it never fails the push, because one deliberate full run
+# (`ZEKINI_FULL_GATE=true`) or one deliberate hands-on push is legitimate.
+#
+# Usage: batch-mode-guard REPO SKIP_SLOW
+#
+# `repos_off` is read from the hub's one settings record with this machine's WORKER
+# token (GET /v1/settings is open to every authenticated machine; only PUT needs the
+# planner). Read-only. Every failure is silence and exit 0: no token, no curl, no
+# python3, an unreachable or slow hub, a malformed record. A warning system that
+# blocks or chats about its own plumbing on every push is worse than none.
+#
+# Environment:
+#   FLEET_HUB               https://conductor.zekini.co.za (Fleet/hubclient.py's name;
+#                           "off" reaches nothing)
+#   FLEET_HUB_TOKEN_FILE    ~/.config/fleet/hub.token
+#
+set -uo pipefail
+
+repo="${1:-}"
+skip_slow="${2:-}"
+[ -n "$repo" ] || exit 0
+
+hub="${FLEET_HUB:-https://conductor.zekini.co.za}"
+[ "$hub" = "off" ] && exit 0
+hub="${hub%/}"
+
+token_file="${FLEET_HUB_TOKEN_FILE:-$HOME/.config/fleet/hub.token}"
+[ -r "$token_file" ] || exit 0
+token="$(head -n1 "$token_file" 2>/dev/null | tr -d '\r\n')"
+[ -n "$token" ] || exit 0
+
+command -v curl >/dev/null 2>&1 || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+record="$(curl -fsS --connect-timeout 1 --max-time 2 \
+  -H "Authorization: Bearer ${token}" \
+  "${hub}/v1/settings" 2>/dev/null)" || exit 0
+[ -n "$record" ] || exit 0
+
+# The record is {"ok": true, "settings": {...}}. python3 parses it rather than a
+# hand-rolled grep: the same file says a `jq` dependency (or a fragile grep) is not
+# acceptable in this hook, and a false alarm on a repo name is exactly what that
+# avoids. Absent python3, the check is skipped, not guessed at.
+listed="$(printf '%s' "$record" | python3 -c '
+import json, sys
+record = json.load(sys.stdin)
+settings = record.get("settings") if isinstance(record, dict) else None
+if not isinstance(settings, dict):
+    raise SystemExit(1)
+off = settings.get("repos_off") or []
+if isinstance(off, str):
+    off = [off]
+print("yes" if sys.argv[1] in off else "no")
+' "$repo" 2>/dev/null)" || exit 0
+case "$listed" in
+  yes | no) ;;
+  *) exit 0 ;;
+esac
+
+case "$skip_slow" in
+  1 | true | TRUE | True | yes | on) skipping=1 ;;
+  *) skipping=0 ;;
+esac
+
+if [ "$listed" = "yes" ] && [ "$skipping" -eq 0 ]; then
+  cat >&2 <<EOF
+⚠️  pre-push: batch mode and SKIP_SLOW_TESTS disagree (docs/batch-mode.md, ZST-1097).
+    Central's settings record lists ${repo} in \`repos_off\` — the repo is in local batch
+    mode — but SKIP_SLOW_TESTS is not true, so this push runs the full backend suite and
+    browser group.
+    In batch mode set SKIP_SLOW_TESTS=true in the repo's gitignored .env on the laptop
+    that pushes it. If this full run is deliberate, ignore this line.
+EOF
+elif [ "$listed" = "no" ] && [ "$skipping" -eq 1 ]; then
+  cat >&2 <<EOF
+⚠️  pre-push: SKIP_SLOW_TESTS is on but batch mode is not (docs/batch-mode.md, ZST-1097).
+    Central's settings record does NOT list ${repo} in \`repos_off\`, so the conductor is
+    still taking its cards, while this push skips the slow suites and browser group.
+    Set SKIP_SLOW_TESTS=false in .env (or ZEKINI_FULL_GATE=true for one full run) unless
+    this skip is deliberate.
+EOF
+fi
+exit 0

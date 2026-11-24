@@ -1,0 +1,2731 @@
+#!/usr/bin/env bash
+#
+# Canonical Zekini pre-push hook (from zekini-com/standards) — PRE-LIVE local CI.
+#
+# While the org is pre-launch and GitHub Actions are DISABLED (free minutes
+# exhausted, no paid overage), this hook is the CI gate: it runs the FULL
+# CI-equivalent suite locally and BLOCKS the push on any failure. Re-enable
+# Actions + branch protection before go-live; this hook stays as a fast local
+# pre-flight.
+#
+# Split of labour:
+#   pre-commit → FAST, staged-only (mago format + lint + HTTP-code guard +
+#                analyse-baseline gate on newly added app/ PHP)
+#   pre-push   → FULL CI-equivalent (this file)
+#
+# Enable both once per clone:
+#   git config core.hooksPath .githooks
+# Bypassable by design (discipline, not a hard gate) — but only one way (ZST-488):
+#   bin/zekini-push    # `git push --no-verify` of HEAD, only on this file's
+#                      # green receipt for HEAD, every stage, browser included
+# Bare `git push --no-verify` is never the answer (docs/pre-push-performance.md).
+#
+# All commands go through Sail to match the rest of the team.
+#
+# ── Per-repo policy ───────────────────────────────────────────────────────────
+#
+# The gates below adapt to a repo's SHAPE, not only to its contents, so one
+# canonical file serves every repo:
+#
+#   * Frontend gates run only when web/package.json exists.
+#   * HOW web/ is invoked is detected too — `--workspace web` where the root
+#     package declares workspaces (kadro, voc), `npm --prefix web run` where
+#     web/ installs standalone with its own node_modules (loupe).
+#   * The SPA shell assertions run only when the repo uses the shell convention
+#     (web/scripts/place-shell.mjs).
+#   * Browser tests run only when the repo has a spec in the `browser` group —
+#     asked of the specs themselves, never of a directory name (KAD-1376).
+#
+# ⚠ Detecting that something is PRESENT and then hard-coding one way of invoking
+# it is the same defect as not detecting at all — it just fails later and less
+# honestly. That was this file's own bug until 2026-08-07 (ZS-74): every frontend
+# gate assumed a workspace root, so on loupe they errored out rather than either
+# passing or failing. If you add a gate here, detect the convention as well as
+# the file.
+#
+# Eight switches are deliberate policy rather than detection. Set them in
+# `.githooks/config` (committed — it is repo policy, not a personal preference):
+#
+#   ZEKINI_COVERAGE_ADVISORY=true    # report frontend coverage, do not block
+#   ZEKINI_PARALLEL_TESTS=true       # run the backend suite with --parallel
+#   ZEKINI_BROWSER_IN_PREPUSH=false  # browser tests run in bin/eod, not here
+#   ZEKINI_PROD_URL=https://…        # the origin the deployed-tag guard asks
+#   ZEKINI_REVIEW_MODEL=sonnet       # the mechanized review's model — the
+#                                    # repo's repo-stage-rigor.md row (ZST-319);
+#                                    # unset = opus, i.e. never under-reviews
+#   ZEKINI_TEST_STAGES="unit feature browser"
+#                                    # the staged gate's order (ZST-295) — unset
+#                                    # is this full default; see lib/test-stages.sh
+#   ZEKINI_TEST_SELECTOR=bin/test-plan
+#                                    # the repo's own path→test-group selector
+#                                    # (ZST-891) — unset runs the full backend
+#                                    # suite; see lib/test-stages.sh rule 7
+#   ZEKINI_STOP_ON_FAILURE=false     # run every backend stage to the end instead
+#                                    # of stopping at the first failure per worker
+#                                    # (a report, not a verdict — debugging only)
+#
+# The backend stages and the dedicated browser step below ALSO go through
+# lib/fleet-test-lock.sh — the machine-wide test queue (ZST-258/332). That
+# one is NOT a switch: the owner made it mandatory fleet-wide, since this
+# box (and every box like it) runs several repos' Sail stacks at once and a
+# heavy suite competing for memory with another repo's is exactly what kills
+# both. See docs/pre-push-performance.md, "The machine-wide test queue".
+#
+# ⚠️ ZST-345: this paragraph is why `ZEKINI_TEST_LOCK_MAX_HOLD` — the test
+# queue's own hold-time override, see ZST-344's comment on the plain
+# backend-suite stage below — is NOT a ninth entry in the bulleted list
+# above. A switch there means "this repo opted out of (or reconfigured) a
+# gate"; MAX_HOLD tunes a MANDATORY mechanism every repo is already in, the
+# same distinction this paragraph already draws. The header above once
+# said "Eight" while the list had only seven — a stale count, not a missing
+# switch. It says eight again since ZST-891 added ZEKINI_TEST_SELECTOR, and
+# the list has eight.
+#
+# Set the first ONLY where the repo-wide coverage threshold is currently
+# unsatisfiable, and treat it as debt. It defaults to blocking, so adopting this
+# file never silently weakens a gate a repo already passes.
+#
+# ZEKINI_PARALLEL_TESTS defaults OFF for the same reason, inverted: a suite that
+# is not parallel-safe fails in ways that look like code bugs (see
+# docs/pre-push-performance.md), so a repo opts in only after it has run
+# `composer test:parallel` green. It may also be a worker count of TWO OR MORE
+# (ZEKINI_PARALLEL_TESTS=6) where the default — one worker per core — is too
+# hungry for the box; `1` is boolean true, not one worker.
+#
+# ZEKINI_PARALLEL_TEST_EXCLUDE_GROUPS (ZST-414) is a companion of that switch, not
+# a ninth one, and means nothing while it is off: a space- or comma-separated
+# list of test groups the repo has found to race under `--parallel` (a test that
+# passes alone and fails beside itself — ACC-338's maintenance-mode). Those groups
+# leave every parallel stage and run once, serially, in a final `serial` stage, so
+# nothing is skipped — see lib/test-stages.sh rule 6. Without it, a repo-local
+# unsafe group could only be kept out by editing the canonical hook.
+#
+# ZEKINI_BROWSER_IN_PREPUSH defaults ON, for the same reason as the first: an
+# unset value must never quietly remove a gate. It COMPOSES with the "does this
+# repo have a spec in the browser group" check rather than replacing it — the gate
+# is "the repo has browser tests AND wants them on every push". Set it false only
+# where the browser suite genuinely runs in `bin/eod`.
+#
+# ⚠️ Setting it false does NOT mean "no browser coverage on push" (ZST-242) — it
+# only skips the DEDICATED, timed browser step further down. A repo with browser
+# tests still has them run inside the backend suite call, unfiltered (no group
+# exclusion applied), because a bare `php artisan test`/`bin/parallel-suite` with
+# no group filter runs every configured testsuite once phpunit.xml lists one. That
+# path is timeout-bounded too (BACKEND_BROWSER_TIMEOUT_SECONDS, longer ceiling than
+# the dedicated step's), but it is still a real run, not an absence of one — don't
+# reason about push timing or coverage as if setting this false removes them.
+#
+# ZEKINI_PROD_URL is the origin the deployed-release-tag guard asks what it is
+# serving (versioning.md §4.1). Unset, the guard does not run and says so loudly
+# — the failure it exists to catch is a check that passes while proving nothing.
+#
+# SKIP_SLOW_TESTS is the fourth, and it is the opposite kind: a per-developer
+# switch read from the shell or the gitignored .env, never committed.
+#
+# BROWSER_TIMEOUT_SECONDS=120 (default) bounds the dedicated browser-group
+# step (ZST-213) — a wedged pest-plugin-browser startup has no output, no
+# crash, and never returns otherwise. Not one of the five above: it never
+# removes a gate, only how long it waits before calling a wedge a wedge, so
+# raising it ad-hoc for a genuinely slow box is fine uncommitted.
+#
+# BACKEND_BROWSER_TIMEOUT_SECONDS=600 (default) bounds the backend suite call
+# ONLY when ZEKINI_BROWSER_IN_PREPUSH is off but the repo has browser tests
+# (ZST-242) — that opt-out skips the dedicated, timed browser step above, but
+# doesn't stop a bare `php artisan test`/`bin/parallel-suite` call from
+# running every configured testsuite, browser included, unbounded. Same kind
+# of switch as BROWSER_TIMEOUT_SECONDS: never removes a gate, only how long it
+# waits before calling a wedge a wedge.
+
+set -uo pipefail
+
+# ── Repo policy, committed — sourced FIRST ────────────────────────────────────
+#
+# ⚠️ Moved here 2026-08-31 (found independently by fleet-sms and whatsapp,
+# both running /code-review high). This used to be sourced ~300 lines further
+# down, AFTER `protected`, the lock file paths and every other switch below
+# had already been evaluated from their env/default fallback — so a repo that
+# set e.g. ZEKINI_PROTECTED_BRANCH in its own committed .githooks/config got
+# the guard silently protecting `main` instead of whatever it actually asked
+# for. Every switch below must be read AFTER this line, never before it.
+#
+# ⚠️ ZST-343: every ZEKINI_* knob this file sets is now EXPORTED, not just a
+# shell variable. Plain assignment here used to silently no-op every such
+# knob for a call routed through zekini_test_lock_run (below): that path
+# hands the command to a genuinely NEW `bash "$lock_lib"` process
+# (fleet-test-lock.sh), which inherits the environment, never this script's
+# local variable table — only `sail_run`'s own function BODY crosses via
+# `export -f` (lib/sail-tree.sh), not the `$ZEKINI_*` values it reads at
+# call time.
+#
+# ⚠️ Found in review: a blanket `set -a` around the source line (an earlier
+# version of this fix) exports EVERY name .githooks/config happens to
+# define, not just its ZEKINI_* knobs — and for the rest of the script's
+# lifetime, reaching every later `docker`/`git`/sail subprocess too. Nothing
+# stops a repo's config file from also defining a plain-looking helper
+# variable that collides with something a host tool reads from its own
+# environment (BASH_ENV, DOCKER_HOST, COMPOSE_PROJECT_NAME, GIT_DIR, …).
+# Exporting only the `ZEKINI_*`-prefixed names actually set — the same
+# prefix filter `sail_run` itself already scans for — forwards exactly what
+# the call site needs and nothing else, open-ended for any future knob a
+# repo adds without widening what crosses the boundary.
+#
+# Not `zekini_hook_config_value()`/`zekini_hook_config_values()`
+# (eod-lib.sh) — those solve a DIFFERENT shape of the same "forward a config
+# knob to a subprocess" problem: a fixed, explicitly-named list a caller
+# already knows (standards_snippet()'s five ZEKINI_EOD_*/ZEKINI_PROD_URL/…
+# names). `sail_run`'s own forwarding is deliberately open-ended — ANY
+# ZEKINI_* knob a repo's .githooks/config defines, known or not — so a
+# fixed-name helper would need updating every time a repo adds a new one,
+# exactly the coupling the dynamic `${!ZEKINI_@}` scan (both here and in
+# sail_run) exists to avoid.
+# shellcheck disable=SC1091
+if [ -f .githooks/config ]; then
+  . .githooks/config
+  for zekini_cfg_var in "${!ZEKINI_@}"; do
+    export "$zekini_cfg_var"
+  done
+  unset -v zekini_cfg_var
+fi
+
+# ── Which remote is actually being pushed to ──────────────────────────────────
+#
+# git invokes pre-push as `pre-push <remote-name> <remote-url>`, with the ref
+# list on stdin. Captured before the flock re-exec below (which forwards "$@"
+# through, so this survives it) rather than assumed, because hardcoding
+# `origin` — found 2026-08-31, whatsapp — silently mis-judges every check
+# against it (branch-protection ancestry, the tag-ancestry check, the version
+# gate) on a `git push upstream …` or any second remote, indistinguishably
+# from `origin/main` simply not existing locally yet (both cases fall through
+# a `2>/dev/null`).
+remote="${1:-origin}"
+
+# ── Branch protection: no direct pushes to main ───────────────────────────────
+#
+# Actions and GitHub branch protection are both off pre-live, so this hook is the
+# only thing standing between a stray `git push` and main. Everything lands via a
+# PR.
+#
+# FIRST, before the lock and before Sail is even looked for, so it fails
+# instantly rather than after a multi-minute suite — and so it still fires in a
+# clone with no dependencies installed, where every other gate exits early.
+#
+# It reads the ref list git puts on stdin. The flock re-exec below inherits an
+# already-drained stdin, so the check is a no-op the second time through; that is
+# harmless FOR THIS CHECK, because by then it has already passed in the outer
+# process — but it is NOT harmless for `branch_shas`, which is also built by
+# this same loop and is still needed later, past both flock layers. See the
+# recovery below.
+protected="${ZEKINI_PROTECTED_BRANCH:-main}"
+tag_names=()
+tag_shas=()
+branch_refs=0
+deleted_refs=0
+
+# ⚠️ Found 2026-08-31 (whatsapp, WHA-91's own review panel): `branch_shas` is
+# what `zekini_check_version` (ZST-168) loops over, ~250 lines below, AFTER
+# both flock re-execs. Each `flock ... "$0" "$@"` starts a genuinely NEW
+# process running this whole script over — "$@" carries the positional args
+# through, stdin does not, and the pipe git handed this hook was already fully
+# consumed by THIS loop in the outer process. So the innermost process (the
+# only one that ever reaches the version check) always saw an empty pipe here,
+# and `zekini_check_version` silently ran its loop zero times on every push
+# where `flock` exists (Linux/WSL — i.e. the fleet's normal case). The
+# monotonicity check this file spends 20 comment-lines justifying never
+# actually ran. Recovered via an env var rather than a temp file — a plain
+# space-joined list of SHAs has no characters that need escaping, and env vars
+# already cross the `flock … "$0" "$@"` boundary (`export` two lines below the
+# lock acquisitions) where a fresh stdin or argv would not.
+#
+# ⚠️ Only trusted when ZEKINI_PRE_PUSH_REEXEC proves this IS a re-exec'd child
+# — caught in review. Set by this file, immediately before EVERY point it
+# re-execs itself (both flock layers below), so its presence is what actually
+# proves the value came from the outer process's own run a moment ago — not
+# from a developer's shell (this file's own comments name
+# `ZEKINI_PRE_PUSH_BRANCH_SHAS` explicitly, which is exactly the kind of thing
+# someone testing this exact mechanism might export and forget to unset). A
+# stray leaked value would otherwise silently seed branch_shas with unrelated
+# commits before the real ref-reading loop below even runs.
+#
+# ⚠️ ONE shared flag, not an OR of each layer's own — caught in review. An
+# earlier version checked `ZEKINI_PRE_PUSH_LOCK_HELD`/
+# `ZEKINI_PRE_PUSH_GLOBAL_LOCK_HELD` by name, which meant a FUTURE third
+# re-exec layer that forgot to also set one of those two exact names would
+# silently reintroduce the empty-branch_shas bug this whole mechanism exists
+# to fix. Any re-exec layer added to this file in future MUST set
+# ZEKINI_PRE_PUSH_REEXEC=1 (alongside whatever flag of its own it uses to
+# avoid re-entering itself) — one flag, one place this comment has to be read,
+# instead of a name to remember to extend at a second site far from this one.
+#
+# branch_ref_names is the same recovery for the branch NAME each SHA belongs
+# to — added ZST-200, needed so zekini_check_review_attestation (below) can
+# tell a hotfix/* branch apart from any other past the same flock re-exec
+# boundary. Git ref names cannot contain a space, so space-joining is exactly
+# as safe here as it is for the SHAs.
+#
+# ⚠️ Recovered TOGETHER, and refused when they disagree (ZST-234, found by
+# kadro adopting ZST-217). The two lists are indexed in lockstep, and they
+# used to be recovered under two separate guards: a child that got the SHAs
+# but not the names read `""` as every branch's name, so `hotfix/*` never
+# matched and a legitimate hotfix push with no VERSION bump was refused by
+# the attestation gate — the exact exemption that gate documents. The outer
+# process exports both from arrays it appends in lockstep, so a mismatch
+# means the environment was tampered with between the two; stopping says so,
+# where guessing a pairing would gate the wrong branch.
+branch_shas=()
+branch_ref_names=()
+if [ "${ZEKINI_PRE_PUSH_REEXEC:-}" = "1" ]; then
+  read -ra branch_shas <<< "${ZEKINI_PRE_PUSH_BRANCH_SHAS:-}"
+  read -ra branch_ref_names <<< "${ZEKINI_PRE_PUSH_BRANCH_REFS:-}"
+  if [ "${#branch_shas[@]}" -ne "${#branch_ref_names[@]}" ]; then
+    echo "✗ pre-push: the re-exec'd hook recovered ${#branch_shas[@]} branch SHA(s) but ${#branch_ref_names[@]} branch name(s)." >&2
+    echo "  ZEKINI_PRE_PUSH_BRANCH_SHAS and ZEKINI_PRE_PUSH_BRANCH_REFS are paired by position, so the push cannot be" >&2
+    echo "  checked branch by branch. Unset both (and ZEKINI_PRE_PUSH_REEXEC) in your shell and push again." >&2
+    exit 1
+  fi
+fi
+
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  [ -z "${remote_ref:-}" ] && continue
+
+  if [ "$remote_ref" = "refs/heads/${protected}" ]; then
+    echo "✗ pre-push: direct pushes to '${protected}' are blocked — open a PR instead." >&2
+    echo "  (override with 'git push --no-verify' only if you know why)" >&2
+    exit 1
+  fi
+
+  # ── A deletion has no local side to verify ──────────────────────────────────
+  #
+  # `git push origin :refs/tags/v0.2.0` sends the NULL SHA as the local sha.
+  # Everything below this point asks a question about an object — does the tag
+  # point at a commit, is that commit on main, does its VERSION match — and none
+  # of them can be asked of a ref that is being removed. Before this, a tag
+  # deletion reached the tag loop and died on "does not point at a commit",
+  # forcing --no-verify, which throws away the protected-branch check and every
+  # other gate for that push (ZST-96, found deleting a stray v0.2.0 in pigeon —
+  # the release wedge it blocked left four features unreleased for two days).
+  #
+  # Matched by CONTENT, not length: all-zeros is the null sha in both sha1 (40)
+  # and sha256 (64), so this keeps working if the repo's object format changes.
+  # Note the protected-branch check above deliberately runs FIRST — deleting the
+  # protected branch is exactly the push that guard exists to refuse.
+  if [ -z "${local_sha:-}" ]; then
+    deleted_refs=$((deleted_refs + 1))
+    continue
+  fi
+  case "$local_sha" in
+    *[!0]*) ;;
+    *)
+      deleted_refs=$((deleted_refs + 1))
+      continue
+      ;;
+  esac
+
+  case "$remote_ref" in
+    refs/tags/*)
+      tag_names+=("${remote_ref#refs/tags/}")
+      tag_shas+=("$local_sha")
+      ;;
+    *)
+      branch_refs=$((branch_refs + 1))
+      branch_shas+=("$local_sha")
+      branch_ref_names+=("${remote_ref#refs/heads/}")
+      ;;
+  esac
+done
+
+# Re-exported unconditionally (a no-op when it just came FROM this same env
+# var, in a re-exec'd child whose own read loop above added nothing to it) —
+# see the recovery note above `branch_shas=()`. Plain SHAs, space-joined: no
+# characters here need quoting or escaping.
+export ZEKINI_PRE_PUSH_BRANCH_SHAS="${branch_shas[*]}"
+export ZEKINI_PRE_PUSH_BRANCH_REFS="${branch_ref_names[*]}"
+
+# A push that ONLY deletes refs adds nothing to the remote, so there is nothing
+# for either the tag checks or the suite to verify — and running minutes of tests
+# to remove a ref is the cost that teaches people to reach for --no-verify.
+# A push that MIXES a deletion with real refs falls through and is judged on the
+# real ones, which is why this is gated on both counters being zero.
+if [ "$deleted_refs" -gt 0 ] && [ "${#tag_names[@]}" -eq 0 ] && [ "$branch_refs" -eq 0 ]; then
+  echo "✓ pre-push: deletion only ($deleted_refs ref(s)) — nothing is being added, so there is nothing to verify."
+  exit 0
+fi
+
+# ── A tag push is not a code push ─────────────────────────────────────────────
+#
+# A tag POINTS AT a commit the suite has already passed, so there is nothing
+# about it a test run can falsify. Running the full gate to publish one cost
+# loupe five minutes for two tags (LOU-308), blew a time limit, and was worked
+# around with --no-verify.
+#
+# ⚠️ That expense is not an annoyance, it is a CAUSE. Tagging lapsed twice in
+# that repo, and both times the response was a guard that REPORTS the lapse while
+# the correct action stayed expensive and skipping it stayed free. Making the
+# right thing cheap is the fix; another reminder is not.
+#
+# ZST-290: a repo with no `VERSION` file at all — every npm package repo
+# (versioning.md §7; Composer package repos get a `VERSION` file too, purely
+# as this marker) — used to make every version-reading gate in this file
+# silently no-op, `git cat-file -e "${sha}:VERSION"` failing and every caller
+# returning 0 (or, in the tag-verify case just below, wrongly comparing
+# against an empty string) before it ever looked for another source of
+# truth. `package.json`'s `version` field is npm's actual source of truth
+# (§7), so it is the one other file worth trying — never anything under
+# web/, which is a frontend asset bundle inside an APP repo and irrelevant
+# here (see the file's own header comment on web/package.json).
+#
+# Defined THIS early — before the tag-push fast path just below, which
+# `exit 0`s before the branch-push gates further down are ever reached — so
+# both the tag-push and branch-push paths share one definition instead of
+# the tag-push path hardcoding "VERSION" a second time and drifting from
+# whatever the branch-push gates do.
+#
+# Echoes "VERSION" or "package.json" — whichever exists at $1 — or nothing
+# (exit 1) if neither does, so callers keep their existing "cannot know, do
+# not block" behaviour unchanged for a repo with no version file of either
+# shape.
+zekini_version_source() {
+  local commit="$1"
+  git cat-file -e "${commit}:VERSION" 2>/dev/null && { echo "VERSION"; return 0; }
+  git cat-file -e "${commit}:package.json" 2>/dev/null && { echo "package.json"; return 0; }
+  return 1
+}
+
+# Extracts the top-level "version" field from JSON on stdin. Deliberately
+# parses via `node` rather than a `grep`/`sed` regex (caught in review): a
+# naive first-match `"version":` grep reads whichever line happens to come
+# first in the file, and `scripts.version` (a real npm lifecycle hook name —
+# standard-version, np, release-it all use it) or a dependency literally
+# named `version` both sort ahead of the root field in a real package.json.
+# `node` is a safe dependency here — the only repos this function ever runs
+# against are npm package repos and this same file already assumes `node`/
+# `npm` are on the host for the frontend gates elsewhere (see `npm --prefix
+# web run`, further below). No `jq` requirement added: still none in this
+# file. Empty output (invalid JSON, missing/non-string field, or no `node`)
+# is not an error here — every caller already treats an empty version as
+# "cannot know, do not block".
+zekini_json_version() {
+  command -v node >/dev/null 2>&1 || return 0
+  node -e '
+    let data = "";
+    process.stdin.on("data", (chunk) => { data += chunk; });
+    process.stdin.on("end", () => {
+      try {
+        const version = JSON.parse(data).version;
+        // Trimmed to match the VERSION-file path (`tr -d "[:space:]"` strips
+        // ALL whitespace there; a leading/trailing space here would
+        // otherwise survive — bash command substitution only strips
+        // trailing newlines, not this — and silently fail every tag/version
+        // string comparison downstream (caught in review).
+        if (typeof version === "string" && version.trim() !== "") {
+          process.stdout.write(version.trim());
+        }
+      } catch (e) {
+        // Invalid JSON at this commit — nothing to report, same "cannot know" rule.
+      }
+    });
+  ' 2>/dev/null
+}
+
+# Reads the version string at $1 (a commit-ish) from whichever file $2 names
+# ("VERSION" or "package.json", from zekini_version_source). Every caller
+# reads base/remote/branch/tag versions through this so all reads for one
+# push use the SAME file shape — deciding per-call would let a branch that
+# happens to have both files disagree with itself across the reads.
+#
+# Known, accepted edge cases (caught in review, not fixed — see the "cannot
+# know, do not block" rule this whole file already leans on for cheaper
+# cases): a repo genuinely migrating its version source mid-history could
+# have `$source` (resolved once, from the branch tip) mismatch what the base
+# or remote commit's OWN natural source would have been; an app repo whose
+# `VERSION` is missing at one commit but which also carries a root
+# `package.json` (kadro/voc's npm-workspaces convention) reads that
+# package.json's incidental version instead of skipping outright, same
+# "VERSION missing at this commit" case the tag-verify comment above already
+# accepts warn-not-block for. Both require a real repo-type signal this file
+# doesn't have and won't fabricate; not worth the complexity for a case this
+# rare, on a repo (standards) with no live suite to verify the alternative
+# against (ZST-295).
+zekini_version_at() {
+  local commit="$1" source="$2"
+  case "$source" in
+    VERSION) git show "${commit}:VERSION" 2>/dev/null | tr -d '[:space:]' ;;
+    package.json) git show "${commit}:package.json" 2>/dev/null | zekini_json_version ;;
+    *) return 1 ;;
+  esac
+}
+
+# ZST-352: moved up from just before `zekini_check_version` (further below)
+# so the tag-verification block right after this can share it too — a bash
+# function must be defined before anything can call it, and this is now the
+# first of three call sites (tag verification, `zekini_check_version`, and
+# the ZST-217 frontend diff-scan) that all need the exact same "fetch
+# `$remote/$protected` once, remember only success" memoization, so the
+# fetch itself lives in one place rather than three copies drifting apart
+# under a future edit. Memoizes SUCCESS only — caught in review: a naive
+# "fetch once, remember the result" memoization means a single transient
+# fetch failure permanently disables every later caller in the same push,
+# silently; a failed fetch is retried by whichever caller asks next
+# instead (fetch failures are rare; correctness matters more than saving a
+# retry). Callers keep their own "what to do when this returns 1" behaviour.
+zekini_version_fetch_done=0
+# ZST-352, review round 2: the fetch-once memoization above is a plain
+# shell variable, which does NOT survive this file's own `flock … "$0"
+# "$@"` re-exec (a genuinely new process — same reason `branch_shas`/
+# `branch_ref_names` need the `ZEKINI_PRE_PUSH_REEXEC`-gated recovery
+# above, not just a local variable). The tag-verification block below
+# always runs in the OUTER process (before either flock layer); every
+# OTHER caller of `zekini_ensure_protected_fetch` — `zekini_check_version`,
+# the frontend diff-scan — runs in the re-exec'd CHILD, after both. Without
+# this recovery, a mixed tag+branch push's tag block fetches
+# `$remote/$protected` successfully, that success is forgotten the instant
+# the process re-execs, and the child pays a second, genuinely redundant
+# fetch of the exact same ref for the exact same push — the duplicate cost
+# this whole memoization exists to avoid, just moved one process later
+# instead of removed. Same "only trusted when `ZEKINI_PRE_PUSH_REEXEC`
+# proves this IS a re-exec'd child" guard as the recovery above, for the
+# identical reason: a stray `ZEKINI_PRE_PUSH_FETCH_OK` in a developer's own
+# shell must never be mistaken for a fetch that already happened here.
+if [ "${ZEKINI_PRE_PUSH_REEXEC:-}" = "1" ] && [ "${ZEKINI_PRE_PUSH_FETCH_OK:-}" = "1" ]; then
+  zekini_version_fetch_ok=1
+else
+  zekini_version_fetch_ok=0
+fi
+zekini_ensure_protected_fetch() {
+  [ "$zekini_version_fetch_ok" -eq 1 ] && return 0
+  git fetch --quiet "$remote" "$protected" >/dev/null 2>&1 || return 1
+  zekini_version_fetch_ok=1
+  # ⚠️ Found in review, round 3: only reached on a GENUINE fetch (the
+  # `-eq 1` early return above skips this whole body on the recovered-
+  # success path, so this is not "always re-exports, a no-op when already
+  # recovered" — it simply never runs a second time in the same process).
+  # This is the tag-verification block's own fetch, in the OUTER process,
+  # before either flock re-exec — `zekini_ensure_protected_fetch`'s only
+  # other callers (`zekini_check_version`, the frontend diff-scan) run
+  # after BOTH re-execs, so there is no call site in between the two locks
+  # for this to matter to; exporting here is what the outer process's
+  # success has to do to reach the twice-re-exec'd child at all.
+  export ZEKINI_PRE_PUSH_FETCH_OK=1
+}
+
+# Two checks replace the suite, and they are the two a test run could never make,
+# because it passes on the wrong commit just as happily as on the right one:
+# the tag sits on the protected branch, and a `v*` tag's name matches the
+# version **at that commit** — read from the commit, not the checkout, so
+# backfilling old tags still works.
+#
+# ⚠️ Deliberate, flagged in review round 2 (ZST-290): before
+# `zekini_version_source` existed, a commit with no `VERSION` file always
+# read as version `""`, and `"$tag" != "v"` is always true — so an APP repo
+# whose `VERSION` file was accidentally missing at one historical commit
+# (bad rebase, bad cherry-pick) got a hard block if that exact commit was
+# ever tagged. That was never a designed protection, only what "always
+# compare against a hardcoded filename" happened to do — the two gates
+# beside this one already treat "no version file found" as skip-not-block,
+# for exactly the same repos this generalizes to (versioning.md §7). This
+# case now matches them: warn, don't block. If a real app repo ever loses
+# its `VERSION` file mid-history, that is a `git log` question, not
+# something a release-tag push should be the first thing to catch.
+#
+# 🔥 STOP-SHIP (ZST-352, found by Accounting's review panel): this whole
+# block used to be gated on `branch_refs -eq 0` too — "a push mixing tags
+# with branches is a branch push," per this comment's own old wording. That
+# conflated two DIFFERENT questions: whether the SUITE can be skipped (yes,
+# only for a tag-only push — a branch in the same push still needs testing)
+# and whether the TAG ITSELF needs verifying (always, whenever a tag is
+# present, mixed push or not). `git push origin feature-x v9.9.9` never
+# entered this block at all, so the pushed tag's ancestry-on-`$protected`
+# and name/version-match checks silently never ran for it — same outcome as
+# a tag-only push, with none of the safety checks. Verification now runs
+# whenever `tag_names` is non-empty, full stop; only the SUITE-SKIPPING
+# `exit 0` below stays conditional on `branch_refs -eq 0`, so a mixed push
+# gets both: its tag(s) verified AND its branch(es) still tested.
+#
+# ⚠️ Found in review, round 2: this block used to fetch `$remote/$protected`
+# with its own inline `git fetch`, independent of `zekini_ensure_protected_fetch`
+# (below) — harmless when the block could only run on a tag-ONLY push (nothing
+# downstream needed the same ref), but once a mixed push falls through to
+# `zekini_check_version`/the frontend diff-scan, THEY fetch the exact same ref
+# again, paying a second network round-trip for one push — exactly the
+# duplicate-fetch cost `zekini_ensure_protected_fetch`'s own "fetch once,
+# remember only success" memoization exists to avoid. `zekini_version_fetch_ok`
+# et al. are declared above this block (moved up from just before
+# `zekini_check_version`) for exactly this reason: this is now the FIRST of
+# three call sites that share one fetch, not a fourth call site duplicating it.
+if [ "${#tag_names[@]}" -gt 0 ]; then
+  # ⚠️ Found in review, round 3: this used to always say "rather than
+  # re-running a suite they cannot fail" — true for a tag-ONLY push (the
+  # only shape that existed before ZST-352), misleading for a mixed push,
+  # where the suite still runs right below for the branch(es) in the same
+  # push. Branched on `branch_refs`, already known at this point.
+  if [ "$branch_refs" -eq 0 ]; then
+    echo "▶ tag push — verifying the tags rather than re-running a suite they cannot fail…"
+  else
+    echo "▶ tag(s) in this push — verifying them before the suite runs for the branch(es) alongside them…"
+  fi
+
+  # Best effort: an offline push should still publish once the network returns.
+  zekini_ensure_protected_fetch || true
+
+  # 🔥 STOP-SHIP (ZST-353, found by Accounting's review panel): the ancestry
+  # check below used to always read `${remote}/${protected}` — the LOCAL
+  # tracking ref — regardless of whether the fetch just above it succeeded.
+  # `git fetch "$remote" "$protected"` always writes `FETCH_HEAD`, but only
+  # updates the local tracking ref (`refs/remotes/origin/main`) as a SIDE
+  # EFFECT of the default `+refs/heads/*:refs/remotes/origin/*` fetch
+  # refspec — on a restricted-refspec or single-branch checkout (no such
+  # refspec configured), that side effect never happens, so
+  # `${remote}/${protected}` stays stale-or-missing forever no matter how
+  # many times this fetches, and a legitimate release tag on a commit not
+  # yet visible to the stale tracking ref gets wrongly blocked.
+  #
+  # Reads `FETCH_HEAD` instead, but ONLY when `zekini_ensure_protected_fetch`
+  # actually succeeded THIS run (`zekini_version_fetch_ok`, memoized once
+  # above the tag block, unchanged for the rest of this loop) — `FETCH_HEAD`
+  # is a repo-wide, single-slot file that reflects whatever a git command
+  # last fetched, for ANY reason, so trusting it after a FAILED fetch here
+  # could silently compare against a completely unrelated ref (a developer's
+  # own earlier `git fetch origin some-other-branch`), which could go either
+  # way — wrongly pass a bad tag, not just wrongly block a good one. Falling
+  # back to the local tracking ref on failure keeps the ORIGINAL, deliberate
+  # "a stale ref only ever makes this check stricter, never looser" property
+  # for exactly the case (offline push) that comment was written for.
+  zekini_ancestry_ref=""
+  if [ "$zekini_version_fetch_ok" -eq 1 ]; then
+    # ⚠️ Found in review, round 4: reading the live ref NAME "FETCH_HEAD"
+    # repeatedly (once per tag, in the loop below) leaves a race window —
+    # this whole block runs BEFORE the file's own flock "single run at a
+    # time" guard (acquired much later), so a concurrent process sharing
+    # this working copy (a killed-and-retried push — this file's own
+    # comments elsewhere say that is an expected, not hypothetical,
+    # scenario — or an IDE's background fetch) can overwrite
+    # `.git/FETCH_HEAD` between this fetch and the ancestry check below,
+    # silently substituting an unrelated ref. Resolving it to a concrete
+    # SHA right now, once, freezes what "the fetch that just succeeded"
+    # actually means for the rest of this block — nothing later can change
+    # what a fixed SHA points at.
+    zekini_ancestry_ref="$(git rev-parse --quiet --verify FETCH_HEAD 2>/dev/null || true)"
+  fi
+  [ -n "$zekini_ancestry_ref" ] || zekini_ancestry_ref="${remote}/${protected}"
+
+  # ⚠️ Found in review, round 4: on a restricted-refspec/single-branch
+  # checkout whose FIRST push is a tag (or one that's offline before ever
+  # fetching), the fallback above is a tracking ref that has never existed
+  # at all — `git merge-base --is-ancestor` then fails with "unknown
+  # revision", which the loop below treated identically to "confirmed not
+  # an ancestor", printing a hard verdict for something that was never
+  # actually checked. Caught once, before the loop, rather than once per
+  # tag: still BLOCKS (this is the primary release-integrity gate, not an
+  # advisory check — unlike the "cannot know, do not block" pattern used
+  # for the VERSION-source checks below, silently letting an unverifiable
+  # tag through is the worse failure here), but says so honestly instead
+  # of claiming a violation that was never confirmed.
+  if ! git rev-parse --quiet --verify "${zekini_ancestry_ref}^{commit}" >/dev/null 2>&1; then
+    echo "✗ pre-push: cannot verify any tag's ancestry — ${protected} has never been" >&2
+    echo "  fetched in this checkout (${zekini_ancestry_ref} does not exist) and the live" >&2
+    echo "  fetch above didn't succeed either. This is NOT a confirmed violation, only" >&2
+    echo "  unverifiable — connect and push again, or run 'git fetch $remote $protected'" >&2
+    echo "  by hand first." >&2
+    exit 1
+  fi
+
+  index=0
+  while [ "$index" -lt "${#tag_names[@]}" ]; do
+    tag="${tag_names[$index]}"
+    commit="$(git rev-parse --quiet --verify "${tag_shas[$index]}^{commit}" || true)"
+
+    if [ -z "$commit" ]; then
+      echo "✗ pre-push: $tag does not point at a commit." >&2
+      exit 1
+    fi
+
+    if ! git merge-base --is-ancestor "$commit" "$zekini_ancestry_ref" 2>/dev/null; then
+      echo "✗ pre-push: $tag points at $commit, which is not on ${protected} —" >&2
+      echo "  production only ever runs ${protected}." >&2
+      exit 1
+    fi
+
+    case "$tag" in
+      v[0-9]*)
+        source="$(zekini_version_source "$commit" || true)"
+        version=""
+        [ -n "$source" ] && version="$(zekini_version_at "$commit" "$source")"
+
+        if [ -z "$source" ] || [ -z "$version" ]; then
+          # Same "cannot know, do not block" rule as zekini_check_version and
+          # zekini_check_review_attestation — caught in review: this branch
+          # used to skip straight to the comparison whenever $source existed
+          # even if $version came back empty (a package.json with no parseable
+          # "version" field, say), hard-blocking with a confusing "is ''"
+          # message instead of warning like every other "cannot know" case.
+          echo "  ⚠ $tag → $commit (on ${protected}; no readable version at this commit, version not checked)"
+        else
+          if [ "$tag" != "v$version" ]; then
+            echo "✗ pre-push: $tag points at a commit whose ${source} is '$version'." >&2
+            echo "  Tag v$version, or tag the right commit." >&2
+            exit 1
+          fi
+
+          echo "  ✓ $tag → $commit (${source} $version, on ${protected})"
+        fi
+        ;;
+      *)
+        echo "  ✓ $tag → $commit (on ${protected}; not a release tag, so its version is not checked)"
+        ;;
+    esac
+
+    index=$((index + 1))
+  done
+
+  if [ "$branch_refs" -eq 0 ]; then
+    echo "✓ pre-push: tags verified. The suite is skipped — it already passed on these commits."
+    exit 0
+  fi
+
+  echo "✓ pre-push: tags verified. This push also includes branch ref(s), which still need the suite — continuing."
+fi
+
+# ── Single run at a time ──────────────────────────────────────────────────────
+#
+# The checks below take minutes against the shared `testing` database, so killing
+# a slow push and retrying is a natural move — but the containerised
+# `artisan test` outlives the kill, and a second run then truncates and re-seeds
+# the same tables underneath the first. Both die on a database deadlock inside a
+# factory, which reads as a code bug and is expensive to diagnose. Refuse the
+# second run instead of interleaving.
+#
+# flock is util-linux, so it is absent on a stock macOS. There the hook runs
+# unguarded, exactly as it did before — no worse, just unprotected.
+lock_file="${ZEKINI_PRE_PUSH_LOCK_FILE:-${TMPDIR:-/tmp}/zekini-pre-push-$(basename "$PWD").lock}"
+
+if [ "${ZEKINI_PRE_PUSH_LOCK_HELD:-}" != "1" ] && command -v flock >/dev/null 2>&1; then
+  export ZEKINI_PRE_PUSH_LOCK_HELD=1
+  export ZEKINI_PRE_PUSH_REEXEC=1
+
+  flock --nonblock --conflict-exit-code 99 "$lock_file" "$0" "$@"
+  status=$?
+
+  if [ "$status" -eq 99 ]; then
+    echo "✗ another pre-push check is already running (lock: $lock_file)." >&2
+    echo "  Both runs share the 'testing' database, so letting this one through" >&2
+    echo "  would corrupt each other's data and fail with a database deadlock." >&2
+    echo "  Wait for it to finish, or kill it inside the container — killing the" >&2
+    echo "  git push alone leaves the test run going." >&2
+    exit 1
+  fi
+
+  exit "$status"
+fi
+
+# ── Global throttle: only one repo's heavy suite runs at a time ───────────────
+#
+# The lock above stops two pushes in the SAME repo corrupting each other's
+# database. It does nothing for the machine as a whole: with several sessions
+# open across different repos, each push can spawn a full parallel worker set
+# (ZEKINI_PARALLEL_TESTS) at once, and the box thrashes under N repos x 8
+# workers rather than any single repo's run being slow. Different repos' test
+# databases don't collide, so there is no corruption risk here — this is a
+# resource throttle, not a correctness lock, and it queues rather than fails.
+# 2026-08-29: added after multiple concurrent sessions across repos made one
+# machine "very busy" simultaneously running full parallel suites.
+global_lock_file="${ZEKINI_PRE_PUSH_GLOBAL_LOCK_FILE:-${TMPDIR:-/tmp}/zekini-pre-push-global.lock}"
+
+if [ "${ZEKINI_PRE_PUSH_GLOBAL_LOCK_DISABLE:-}" != "1" ] && [ "${ZEKINI_PRE_PUSH_GLOBAL_LOCK_HELD:-}" != "1" ] && command -v flock >/dev/null 2>&1; then
+  export ZEKINI_PRE_PUSH_GLOBAL_LOCK_HELD=1
+  export ZEKINI_PRE_PUSH_REEXEC=1
+
+  if ! flock --nonblock "$global_lock_file" true 2>/dev/null; then
+    echo "… pre-push: another repo's suite is already running — queuing behind the machine-wide test lock ($global_lock_file)…" >&2
+  fi
+
+  flock "$global_lock_file" "$0" "$@"
+  exit $?
+fi
+
+# ── Green receipt: proof the FULL suite passed on this exact commit (ZST-488) ─
+#
+# Owner decision 2026-09-23: `--no-verify` stays, but a push to a protected
+# branch must carry machine proof that the full suite, browser included, ran
+# green on the SHA being pushed. LOU-968 shipped with its browser suite red: the
+# session ran `composer test` (Unit + Feature), called that "the full local
+# suite", and pushed with `--no-verify`. The VERSION bump is the REVIEW receipt
+# (docs/review-attestation.md); this is the TESTS receipt, which the bump does
+# not carry.
+#
+# The receipt is `$GIT_DIR/zekini-green` (per worktree, because HEAD is), and
+# `bin/zekini-push` (templates/hooks/zekini-push) is the one thing that reads
+# it. It is deleted here, at the start of every run that is going to test
+# anything, and written only at the very end of a run that passed — a `fail`
+# exits before it, so a red run leaves no receipt at all. A run that passed
+# while SKIPPING something (SKIP_SLOW_TESTS, the diff-aware frontend skip, a
+# browser group that had nowhere to run) still writes one, with the skipped
+# stages under `missing=`, so zekini-push can say which stage is missing rather
+# than only "no receipt".
+#
+# It names a commit only when the tree tested WAS that commit: clean at the
+# start, clean at the end, HEAD unchanged. A dirty tree tested uncommitted work,
+# and a receipt for HEAD would vouch for code that never ran.
+#
+# Here, after both lock layers, so only the innermost process — the one that
+# runs the gates — touches it; after the tag-only and deletion-only fast paths,
+# which test nothing and so must not wipe a receipt a full run just wrote.
+zekini_green_file="$(git rev-parse --git-path zekini-green 2>/dev/null || true)"
+zekini_green_head="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
+zekini_green_stages=""
+zekini_green_missing=""
+if [ -n "$zekini_green_file" ]; then
+  rm -f "$zekini_green_file"
+fi
+
+zekini_green_dirty() {
+  [ -n "$(git --no-optional-locks status --porcelain --untracked-files=normal 2>/dev/null)" ]
+}
+
+zekini_green_was_dirty=0
+if zekini_green_dirty; then
+  zekini_green_was_dirty=1
+fi
+
+zekini_green_has() {
+  case " $1 " in
+    *" $2 "*) return 0 ;;
+  esac
+  return 1
+}
+
+# A stage that ran and passed. Called only AFTER its gate, never before:
+# `fail` exits, so reaching the call is the proof it was green.
+zekini_green_ran() {
+  zekini_green_has "$zekini_green_stages" "$1" ||
+    zekini_green_stages="${zekini_green_stages:+$zekini_green_stages }$1"
+}
+
+# A stage this run did not run, though the repo has it.
+zekini_green_skip() {
+  zekini_green_has "$zekini_green_missing" "$1" ||
+    zekini_green_missing="${zekini_green_missing:+$zekini_green_missing }$1"
+}
+
+zekini_green_write() {
+  local head_now browser_tests="no" tmp
+
+  [ -n "$zekini_green_file" ] && [ -n "$zekini_green_head" ] || return 0
+
+  head_now="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
+  if [ "$head_now" != "$zekini_green_head" ]; then
+    echo "⚠ pre-push: no green receipt — HEAD moved during the run (${zekini_green_head:0:12} → ${head_now:0:12}), so no single commit was tested." >&2
+    return 0
+  fi
+  if [ "$zekini_green_was_dirty" = 1 ] || zekini_green_dirty; then
+    echo "⚠ pre-push: no green receipt — the tree had uncommitted changes, so what passed is not ${zekini_green_head:0:12}." >&2
+    echo "  Commit (or stash) them and run the gate again if you need zekini-push." >&2
+    return 0
+  fi
+
+  # The browser stage is required wherever the repo HAS browser specs, whatever
+  # the reason it did not run here (switched off, frontend skipped, no web/).
+  if zekini_has_browser_tests_memo; then
+    browser_tests="yes"
+    zekini_green_has "$zekini_green_stages" browser || zekini_green_skip browser
+  fi
+
+  tmp="${zekini_green_file}.tmp.$$"
+  if ! {
+    echo "# Green receipt (ZST-488), written by .githooks/pre-push; read by bin/zekini-push."
+    echo "sha=${zekini_green_head}"
+    echo "stages=${zekini_green_stages}"
+    echo "missing=${zekini_green_missing}"
+    echo "browser-tests=${browser_tests}"
+    echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$tmp" || ! mv -f "$tmp" "$zekini_green_file"; then
+    rm -f "$tmp"
+    echo "⚠ pre-push: could not write the green receipt ($zekini_green_file)." >&2
+    return 0
+  fi
+
+  if [ -n "$zekini_green_missing" ]; then
+    echo "⚠ pre-push: green, but NOT the full suite — missing: ${zekini_green_missing}. zekini-push will refuse this receipt." >&2
+    echo "  Run the whole gate (ZEKINI_FULL_GATE=true, SKIP_SLOW_TESTS off) for one it accepts." >&2
+  else
+    echo "✓ pre-push: green receipt for ${zekini_green_head:0:12} — ${zekini_green_stages:-no test stages}."
+  fi
+}
+
+# ── Version monotonicity: a release number must name exactly one build ────────
+#
+# Pre-live the version bump is folded into the feature PR by hand, because
+# Actions are off — so nothing computes the number and, until this, nothing
+# checked it. With one coder that is fine. With two it is a race, and the loser
+# reuses the winner's number in SILENCE: both branches read the same VERSION when
+# they branched, both bump the patch, and git merges the second cleanly because
+# the file's content already matches what is there. Nothing conflicts, so nothing
+# is reported.
+#
+# What that costs is the whole point of the file. Two different trees answer the
+# same version on all four surfaces the versioning spec says must agree; a bug
+# reported against that version cannot be resolved to a commit; and the tag can
+# only point at one of them, so the other release is untagged — while having
+# shipped migrations.
+#
+# Runs BEFORE the suite and before Sail is looked for, so it costs one fetch on
+# the common (single-branch, reachable-remote) case and fails in seconds rather
+# than after several minutes. A persistent fetch failure across a multi-branch
+# push costs one retry per remaining branch instead — see the memoization note
+# further below for why that trade-off is deliberate.
+#
+# Repo-adaptive and deliberately quiet where it cannot know: no version source
+# (VERSION, or package.json's "version" field for an npm package repo with no
+# VERSION file at all — ZST-290, see zekini_version_source above), no git, no
+# reachable remote branch, or no `sort -V` all mean "do not block". A gate
+# that cannot see must not guess.
+#
+# Takes the local SHA being pushed and its pre-computed version source
+# (`zekini_version_source`, resolved once per branch in the loop below and
+# shared with zekini_check_review_attestation — ZST-290 review round 2) and
+# reads that source from the commit via `git show <sha>:<file>`, never from
+# `HEAD` or the working tree.
+#
+# Fixed 2026-08-31 (ZST-168, found by whatsapp): used to judge the CURRENT
+# CHECKOUT instead — true by coincidence for every single-ref push from the
+# checked-out branch (the fleet's normal shape today), but wrong for pushing a
+# branch you are not on, or pushing with an uncommitted local edit to VERSION.
+# The ref loop above now records each pushed branch's local SHA
+# (`branch_shas`) precisely so this can be called once per ref, on the ref's
+# own commit, instead of once on the checkout.
+# Memoized across calls ONCE THE FETCH SUCCEEDS — found 2026-08-31 (voc,
+# independently confirming whatsapp's fix to the bug above): this function
+# runs once per pushed branch, and before that fix `branch_shas` was always
+# empty so this was moot. Now that the loop below actually iterates, a
+# multi-branch push (`git push origin a b c`) would otherwise fetch the SAME
+# remote ref once per branch. One fetch, shared by every call, same as if
+# there were only ever one branch.
+#
+# ⚠️ Caught in review: a NAIVE "fetch once, remember the result" memoization
+# means a single transient fetch failure on the FIRST branch permanently
+# disables this check for every remaining branch in the same push — silently,
+# with no warning distinguishing "never needed to fetch" from "tried and
+# failed". Fixed by only memoizing SUCCESS: a failed fetch is retried for the
+# next branch (fetch failures are rare; correctness here matters more than
+# saving a retry), and the warning prints once, not once per failing branch.
+#
+# `zekini_version_fetch_done`/`zekini_version_fetch_ok`/
+# `zekini_ensure_protected_fetch` itself are declared further up this file,
+# just before the tag-verification block — ZST-352 made that block the
+# FIRST of three call sites sharing this one memoized fetch (tag
+# verification, this function, and the ZST-217 frontend diff-scan below),
+# and a bash function must be defined before anything can call it.
+
+# ⚠️ Caught in review (ZST-214): "does this host's `sort` support -V" is a
+# fact about the HOST, not about any one pushed branch — the inline probe
+# used to run once per call of zekini_check_version/
+# zekini_check_review_attestation, i.e. once per function per pushed
+# branch, forking a `sort` subprocess each time for a static answer. Same
+# memoize-once shape as $zekini_version_fetch_ok above.
+zekini_sort_v_checked=0
+zekini_sort_v_ok=0
+
+zekini_supports_sort_v() {
+  if [ "$zekini_sort_v_checked" -eq 0 ]; then
+    zekini_sort_v_checked=1
+    printf '1.0.0\n1.0.1\n' | sort -V >/dev/null 2>&1 && zekini_sort_v_ok=1
+  fi
+  [ "$zekini_sort_v_ok" -eq 1 ]
+}
+
+# Shared by zekini_check_version and zekini_check_review_attestation (ZST-262)
+# — both need the exact same "does this branch's VERSION clear what
+# $remote/$protected already has" comparison, and used to carry it as two
+# near-verbatim copies at risk of drifting apart under a future edit. Pure
+# function: takes both versions as arguments rather than reaching for globals,
+# since each caller fetches them slightly differently (zekini_check_version
+# also needs branch_version earlier, for its own base-comparison). Returns
+# success (0) when the branch clears the remote, failure (1) on a collision —
+# callers decide what to print.
+zekini_version_clears_remote() {
+  local remote_version="$1" branch_version="$2" newest
+  newest="$(printf '%s\n%s\n' "$remote_version" "$branch_version" | sort -V | tail -n1)"
+  [ "$branch_version" != "$remote_version" ] && [ "$newest" = "$branch_version" ]
+}
+
+zekini_check_version() {
+  local local_sha="$1" source="$2"
+  command -v git >/dev/null 2>&1 || return 0
+  zekini_supports_sort_v || return 0
+  [ -n "$source" ] || return 0
+
+  if ! zekini_ensure_protected_fetch && [ "$zekini_version_fetch_done" -eq 0 ]; then
+    # Doesn't claim "will retry" — this may be the last (or only) branch in
+    # the loop, in which case there is nothing left to retry for.
+    echo "⚠ pre-push: could not fetch ${remote}/${protected} — version-monotonicity check skipped for this branch." >&2
+    zekini_version_fetch_done=1
+  fi
+  [ "$zekini_version_fetch_ok" -eq 1 ] || return 0
+
+  local base base_version remote_version branch_version
+  base="$(git merge-base "$local_sha" FETCH_HEAD 2>/dev/null)" || return 0
+  [ -n "$base" ] || return 0
+
+  base_version="$(zekini_version_at "$base" "$source")"
+  remote_version="$(zekini_version_at 'FETCH_HEAD' "$source")"
+  branch_version="$(zekini_version_at "$local_sha" "$source")"
+
+  [ -n "$remote_version" ] || return 0
+  [ -n "$branch_version" ] || return 0
+
+  # A branch that did not touch VERSION is none of this hook's business.
+  # versioning.md §3 is explicit that a trivial PR may leave it alone and let the
+  # next releasing PR set the number — so the gate is about a bump that COLLIDES,
+  # never about the absence of one.
+  [ "$branch_version" = "$base_version" ] && return 0
+
+  if ! zekini_version_clears_remote "$remote_version" "$branch_version"; then
+    echo "✗ pre-push: this branch bumps ${source} to ${branch_version}, but ${remote}/${protected} is already ${remote_version}." >&2
+    echo "  A release number has to name one build. Somebody shipped while this branch" >&2
+    echo "  was open, so the number you picked is taken — and git will merge it WITHOUT" >&2
+    echo "  a conflict, because the file already says what you are about to write." >&2
+    echo "" >&2
+    echo "  Bump ${source} past ${remote_version} following the conventional-commit semver" >&2
+    echo "  table, amend the release number in your commit subject to match, and push again." >&2
+    echo "  (override with 'git push --no-verify' only if you know why)" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# ⚠️ ZST-316: shared by zekini_check_review_attestation below and the
+# mechanized review-panel dispatch much further down — both need the same
+# "is this a hotfix branch" answer, and having two independent
+# `case ... in hotfix/*)` sites risked exactly what a shared predicate
+# exists to prevent: the exemption rule changing (e.g. widened to also
+# cover release-hotfix/*) in one and silently not the other.
+zekini_is_hotfix() {
+  case "$1" in
+    hotfix/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ── Review attestation: the VERSION bump IS the receipt ──────────────────────
+#
+# ZST-200, decided 2026-09-03. coding-standards.md's pre-push review panel
+# (4-lens minimum, 5th adversarial pass on Pre-prod/Prod) had no
+# machine-checkable receipt — docs/review-attestation.md's own account of
+# fleet-mail's PR #19 shipping with no panel, no fifth pass and no
+# `Reviewed:` line is why this exists. That doc prototyped a git-notes
+# receipt (snippets/review-attest.sh) and left wiring it into THIS hook as an
+# open owner call, because a check reachable only through --no-verify is not
+# a check.
+#
+# The owner's answer was not to wire the notes prototype in. It is simpler:
+# the VERSION bump a releasing push already carries (versioning.md §3) IS the
+# receipt — no new artifact format, no git note, it rides on tooling that
+# already exists (VERSION, release:tag, the post-merge tagging hook).
+# Accepted trade-off, recorded here so it is not re-litigated: a version bump
+# does not itself prove a review ran, only that whoever pushed did the
+# release-discipline step supposed to follow one. It is a discipline marker,
+# not cryptographic proof — the same limit every other gate in this file
+# already has; an agent willing to lie in a PR description will bump VERSION
+# without reviewing too.
+#
+# This SUPERSEDES versioning.md §3's "a trivial PR may leave VERSION alone"
+# for the review-attestation question specifically — that line still stands
+# for the COLLISION gate above (zekini_check_version), which has a different
+# reason to allow it (nobody should be forced into a meaningless bump). There
+# is no such allowance here: leaving VERSION untouched is now indistinguishable
+# from skipping the panel, so it blocks.
+#
+# Scope mirrors the panel it stands in for:
+#   * hotfix/* is exempt, same as coding-standards.md's panel rule.
+#   * Tag pushes and branch deletions never reach here (handled earlier).
+#   * It does NOT replicate the panel's own non-executable-diff carve-out
+#     (README/.gitignore-only changes) — that needs the diff read, which is
+#     exactly the kind of judgment call this file's own philosophy reserves
+#     for an agent, not a bash script. Known gap, not silently accepted: a
+#     docs-only push still needs a bump today, or --no-verify.
+#
+# Silent where it cannot know, same rule as the collision gate: no version
+# source (VERSION, package.json — ZST-290), no git, no reachable remote, no
+# sort -V all mean "do not block."
+#
+# ⚠️ Caught in review: an earlier version fetched here too, independently of
+# zekini_check_version — on a fetch failure that meant TWO fetch attempts per
+# branch instead of one, for no benefit (a retry a few milliseconds after the
+# first failure is no more likely to succeed than the first attempt was).
+# This function deliberately does NOT fetch. It is only ever called, in the
+# branch loop below, immediately AFTER zekini_check_version for the same SHA
+# and the same pre-computed $source (ZST-290 review round 2: both used to call
+# zekini_version_source independently, forking `git cat-file -e` up to twice
+# EACH for a question with one answer per SHA — the loop below now computes it
+# once and passes it to both). Reusing $zekini_version_fetch_ok is what makes
+# skipping a second fetch attempt correct, not merely convenient — if this
+# function is ever called on its own, it would silently treat every push as
+# unfetchable and never block.
+zekini_check_review_attestation() {
+  local local_sha="$1" ref_name="${2:-}" source="${3:-}"
+
+  zekini_is_hotfix "$ref_name" && return 0
+
+  command -v git >/dev/null 2>&1 || return 0
+  zekini_supports_sort_v || return 0
+  [ -n "$source" ] || return 0
+
+  [ "$zekini_version_fetch_ok" -eq 1 ] || return 0
+
+  local remote_version branch_version
+  remote_version="$(zekini_version_at 'FETCH_HEAD' "$source")"
+  branch_version="$(zekini_version_at "$local_sha" "$source")"
+
+  [ -n "$remote_version" ] || return 0
+  [ -n "$branch_version" ] || return 0
+
+  if ! zekini_version_clears_remote "$remote_version" "$branch_version"; then
+    echo "✗ pre-push: review-attestation — this push does not raise ${source} above ${remote}/${protected} (${remote_version})." >&2
+    echo "  Every non-hotfix push needs a real version bump — it is the machine-checkable" >&2
+    echo "  receipt that the pre-push review panel ran. See the STANDARDS repo's own" >&2
+    echo "  github.com/zekini-com/standards/blob/main/docs/review-attestation.md (ZST-200)" >&2
+    echo "  and github.com/zekini-com/standards/blob/main/docs/versioning.md's semver table" >&2
+    echo "  (§7 for a Composer/npm package repo) — this repo is not expected to have its" >&2
+    echo "  own copy of either. Bump ${source} following that semver table, or push a" >&2
+    echo "  hotfix/* branch if this genuinely is one." >&2
+    echo "  (override with 'git push --no-verify' only if you know why)" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+zekini_push_index=0
+while [ "$zekini_push_index" -lt "${#branch_shas[@]}" ]; do
+  zekini_push_sha="${branch_shas[$zekini_push_index]}"
+  zekini_push_ref="${branch_ref_names[$zekini_push_index]:-}"
+  zekini_push_source="$(zekini_version_source "$zekini_push_sha" || true)"
+  zekini_check_version "$zekini_push_sha" "$zekini_push_source" || exit 1
+  zekini_check_review_attestation "$zekini_push_sha" "$zekini_push_ref" "$zekini_push_source" || exit 1
+  zekini_push_index=$((zekini_push_index + 1))
+done
+
+# ── Mechanized review panel: the fifth adversarial pass (ZST-169, ZST-316) ───
+#
+# CLAUDE.md requires `/code-review high` before every push (min 4 lenses) at
+# EVERY stage — coding-standards.md's panel rule has no stage qualifier of
+# its own (docs/repo-stage-rigor.md, clarified 2026-08-31). What DOES vary by
+# stage is the model: Sonnet for Dev/POC, Opus for Pre-prod/Prod — and an
+# Opus pass over the SAME `/code-review high` invocation IS the "fifth,
+# adversarial pass" Pre-prod/Prod additionally requires; it is not a
+# separate feature. Until now a session ran this itself, by hand, before
+# pushing. This mechanizes it as the ZST-169 reference implementation other
+# repos copy from templates/hooks/ — built first in loupe (their card 697),
+# taken upstream here once its design had actually run in production.
+#
+# Model: ZEKINI_REVIEW_MODEL from `.githooks/config` (ZST-319, decided
+# 2026-09-07), set once per repo to match its row in repo-stage-rigor.md's
+# table — `sonnet` on Dev/POC, `opus` on Pre-prod/Prod. A headless `-p`
+# invocation does not inherit .claude/settings.local.json's model pin, and
+# parsing that file from bash would mean a jq dependency or a fragile grep,
+# so the pin is an explicit committed knob instead. Defaults to `opus`
+# when unset: errs toward MORE rigor than a Dev/POC row calls for, never
+# less — a repo that forgets the knob overspends tokens, it never
+# under-reviews.
+#
+# Relationship to the manual pre-push `/code-review high` pass (ZST-319,
+# decided 2026-09-07): on Dev/POC repos THIS dispatch replaces it — the
+# manual synchronous pass is no longer mandatory there. On Pre-prod/Prod
+# both stay: this one is async and report-only, so it can never block a
+# push nobody looked at first, which makes it a real backstop there rather
+# than a substitute. Extends repo-stage-rigor.md's existing tiering rather
+# than inventing a new policy; recorded in CLAUDE.md's review-panel rule,
+# coding-standards.md and repo-stage-rigor.md.
+#
+# Owner decision (2026-09-03, loupe's card 697): build it, REPORT-ONLY — a
+# finding here never blocks the push, same contract as the release-tag and
+# eod-heartbeat guards above. Skipped on hotfix/*, the same exemption
+# CLAUDE.md's own review-panel rule carries.
+#
+# Dispatched in the BACKGROUND rather than run synchronously: a
+# `/code-review high` pass measured ~10 minutes / ~120K tokens in loupe's own
+# history (card 697's parking comment). Paying that synchronously on every
+# push, even without blocking, is exactly the tax that teaches people to
+# reach for --no-verify — which would discard every gate above it, not just
+# this one. The push completes immediately; a finding lands in a log file
+# for a human to check later.
+#
+# ⚠️ Placed HERE, before the Sail availability check below (found in
+# review): the original placement, at the very end of this file, sat
+# entirely inside the `[ -x "$sail" ] || exit 0` early-exit's shadow — a
+# fresh clone or a CI runner with no `vendor/bin/sail` installed silently
+# never dispatched the review at all, contrary to the "on every non-hotfix
+# push" framing above. Nothing in this block touches Sail. It runs after
+# every gate above that can legitimately end the push early for reasons
+# unrelated to Sail (protected-branch, deletion-only, tag-only, the locks,
+# version monotonicity, review attestation, right above) — a push already
+# rejected by one of those has nothing worth reviewing — but before Sail's
+# own availability gates whether the rest of the suite can run at all.
+#
+# review_needed is computed fresh here from branch_ref_names, not carried
+# across the flock re-exec boundary as its own exported variable — that
+# array is ALREADY recovered across both re-exec layers (ZEKINI_PRE_PUSH_
+# BRANCH_REFS, set near the top of this file), so a second, parallel
+# recovery mechanism would only duplicate it, and avoids a leak Loupe's own
+# review panel caught when this was first ported: a same-shaped custom
+# variable of theirs didn't match sail_run's ZEKINI_PRE_PUSH_* exclusion
+# filter and would have sailed straight into every containerised gate.
+# Checks every pushed branch, not just one — `git push origin feature-x
+# hotfix/urgent` must still review feature-x, so a single "the current
+# branch" check (or a last-branch-wins one) is wrong the same way ZST-284's
+# per-diff (not per-path) classification was wrong.
+#
+# ⚠️ Found in review: indexed access (`${#arr[@]}` + `arr[$i]`), not
+# `"${arr[@]}"` — on bash < 4.4 (stock macOS bash 3.2, which this file's own
+# flock section a few hundred lines up documents as a supported, if
+# degraded, platform), element-expanding an EMPTY array under this file's
+# own `set -u` throws "unbound variable" and aborts the whole hook. Every
+# other array in this file (branch_shas, tag_names, right above) already
+# uses indexed access for exactly this reason; this is the one place that
+# didn't follow it.
+review_needed=0
+zekini_review_idx=0
+while [ "$zekini_review_idx" -lt "${#branch_ref_names[@]}" ]; do
+  zekini_is_hotfix "${branch_ref_names[$zekini_review_idx]}" || review_needed=1
+  zekini_review_idx=$((zekini_review_idx + 1))
+done
+
+# CLAUDE_BIN, not a bare `claude`, for the same reason SAIL_BIN-style
+# overrides exist elsewhere in this file: it lets this hook's own tests
+# stand a stub (or nothing) in for the real binary, so a test run never
+# spends a real review's worth of tokens as a side effect of asserting on
+# something else entirely.
+claude_bin="${CLAUDE_BIN:-claude}"
+
+if [ "$review_needed" != "1" ]; then
+  echo "▶ pre-push: mechanized review panel skipped (hotfix/* is exempt, same as the manual panel)."
+elif command -v "$claude_bin" >/dev/null 2>&1; then
+  review_dir="storage/logs/pre-push-review"
+
+  # Found by review: a silent `mkdir` failure (permissions, a root-owned
+  # directory from an earlier `docker exec` without `-u sail`) would let the
+  # background redirect below fail silently too, so the hook would keep
+  # claiming "dispatched" forever while writing nothing. Checked explicitly
+  # rather than swallowed.
+  #
+  # ⚠️ Found in review: `mkdir -p "$review_dir" && [ -w "$review_dir" ]`
+  # used to fold two different failures into one "not writable" message —
+  # `mkdir -p` itself can fail for reasons that have nothing to do with
+  # review_dir's own permissions (a regular file already sitting at that
+  # path, a non-writable PARENT when review_dir doesn't exist yet, disk
+  # full), and "not writable" sends a developer investigating the wrong
+  # directory's permissions. Split into its own branch with its own message.
+  if ! mkdir -p "$review_dir" 2>/dev/null; then
+    echo "⚠ pre-push: could not create $review_dir — the mechanized review panel did not run this time (report-only, not a gate)." >&2
+  elif [ -w "$review_dir" ]; then
+    # $$ (this process's PID), not just a 1-second timestamp + short SHA:
+    # found in review — an immediate retry of a rejected push (same HEAD,
+    # same second) collided on the same log path, truncating/interleaving
+    # whichever background process was still writing to it.
+    review_log="$review_dir/$(date +%Y%m%dT%H%M%S)-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)-$$.log"
+
+    # --permission-prompts=none, never --dangerously-skip-permissions or
+    # bypassPermissions: docs/repo-stage-rigor.md's Prod row is explicit
+    # that a Prod repo never runs bypass, even unattended. A review is
+    # read-only work — nothing it needs to do should ever hit a permission
+    # prompt — so auto-denying one is the correct failure mode, not a
+    # reason to bypass every guardrail.
+    #
+    # --model: the repo's own stage pin from .githooks/config, defaulting to
+    # opus — see the ZEKINI_REVIEW_MODEL note above this section.
+    zekini_review_model="${ZEKINI_REVIEW_MODEL:-opus}"
+    # MAI-291: captured OUTSIDE the subshell below, before it forks, so it
+    # names THIS push's own foreground process — an `exec` earlier in this
+    # file (the flock re-exec) replaces the process image without changing
+    # its PID, so $$ here is stable all the way through to this script's own
+    # final line, regardless of which flock layer(s) ran. See that subshell's
+    # own comment for what this is used for.
+    zekini_pre_push_pid="$$"
+    # ZST-447 (found by Accounting and Pulse): the review only starts once
+    # this push's own process exits (the wait below), so the log used to be
+    # 0 bytes for the whole push and read as "the review never ran". A first
+    # line written NOW, in the foreground, says it was dispatched and is
+    # waiting; the review appends below it (>>, never >, or this is lost).
+    # The log path is unique to this push ($$ in its name), so `>` here
+    # truncates nothing but its own new file. Checked, not assumed: a write
+    # that fails (disk full, a root-owned file) would fail the review's own
+    # >> too, so it is reported and nothing is dispatched, rather than
+    # claiming a dispatch whose findings could never land.
+    if ! echo "pre-push review panel dispatched at $(date +%H:%M:%S) — waiting for this push's own gates to finish, then running /code-review high (model: $zekini_review_model). Findings follow below." 2>/dev/null >"$review_log"; then
+      echo "⚠ pre-push: could not write $review_log — the mechanized review panel did not run this time (report-only, not a gate)." >&2
+    else
+    (
+      # ⚠️ Found in review, verified live: `flock`'s own lock stays held by
+      # ANY process that still holds an inherited copy of the fd it opened
+      # on the lock file — including a disowned background grandchild, even
+      # after the flock-wrapped pre-push process itself has exited. Closing
+      # every fd above 2 before exec'ing claude releases it immediately;
+      # confirmed with a live repro (a background sleep kept
+      # `flock --nonblock lockfile true` failing until this loop ran, and
+      # succeeding immediately once it did). /proc/self/fd enumeration is
+      # Linux-only, which matches: flock (util-linux) only runs on
+      # Linux/WSL in the first place — see the lock section's own comment
+      # near the top of this file.
+      #
+      # ⚠️ Found in review: stdin (fd 0) is redirected from /dev/null, not
+      # left attached to whatever this hook inherited (git's own ref-list
+      # pipe) — some transports wait for every fd tied to the hook to close
+      # before considering the exchange finished, so an unattended
+      # background job that still held the real stdin open could hang a
+      # push on a feature explicitly documented as "never blocks". A
+      # redirect, not a bare close: `claude -p` never reads stdin here (the
+      # prompt is an argument), but closing fd 0 outright risks a future
+      # read() elsewhere in its process tree hitting EBADF instead of a
+      # clean EOF.
+      exec 0</dev/null
+      # Explicitly gated on /proc existing, not left to fail silently: found
+      # in review — macOS has no /proc, so with nullglob unset the pattern
+      # would be left as the literal string "/proc/self/fd/*", the loop
+      # would run once with zekini_fd="*", and the eval's own 2>/dev/null
+      # would swallow the resulting failure — harmless ONLY because macOS
+      # also has no flock lock-fd to release (this file's own lock section
+      # already documents flock as Linux/WSL-only), not because this loop
+      # declares that dependency itself. A future edit adding any other
+      # Linux-specific fd-holding resource ahead of this block would
+      # silently fail to release it on macOS, with no error, the same
+      # "accidentally safe, not declared safe" trap this comment exists to
+      # close.
+      if [ -d /proc/self/fd ]; then
+        for zekini_fd_path in /proc/self/fd/*; do
+          zekini_fd="${zekini_fd_path##*/}"
+          case "$zekini_fd" in
+            0 | 1 | 2) ;;
+            *) eval "exec $zekini_fd>&-" 2>/dev/null ;;
+          esac
+        done
+      fi
+
+      # MAI-291 (mail, 2026-09-10): this agent has Bash access, and reviewing
+      # a diff that touches test files it has been observed running its own
+      # `sail artisan test` invocation to verify a finding — a reasonable
+      # thing for a review to do, but it shares this repo's ONE `testing`
+      # database with whatever this push's own foreground test stages
+      # (below) are doing, and a `migrate:fresh` from either side drops
+      # tables out from under the other's in-flight run. Reproduced live,
+      # twice, on two separate pushes: each hit "relation \"users\" does not
+      # exist" on a random test partway through the Feature stage, resolved
+      # both times only by keeping the two apart (disabling this dispatch
+      # via CLAUDE_BIN for that one push).
+      #
+      # 🔥 STOP-SHIP, round 1 (caught in review): the first version of this
+      # fix made this subshell `flock` the SAME `$lock_file` the OUTER
+      # "single run at a time" wrapper (above, `flock --nonblock
+      # --conflict-exit-code 99 "$lock_file" "$0" "$@"`) already holds for
+      # this WHOLE SCRIPT's own duration — reasoning that closing this
+      # subshell's inherited copy of that fd (just above) made a fresh
+      # acquisition here safe. It IS safe against THIS push's own
+      # foreground gates, but a review can run up to ~10 minutes (this
+      # section's own comment, above) — and holding that SAME lock for up
+      # to 10 minutes AFTER this push's own foreground gates finish (and
+      # its own copy releases) meant a LATER, completely UNRELATED
+      # `git push` on the same repo — one starting while a PREVIOUS push's
+      # review is still running — hit the outer wrapper's `--nonblock`
+      # immediately and hard-failed with "another pre-push check is
+      # already running," even though no test suite was actually running.
+      # That breaks this whole feature's own "report-only, never blocks"
+      # contract for a push that has nothing to do with the one whose
+      # review is still in flight — a worse bug than the one this was
+      # written to fix, and the flock-less (macOS) branch that version
+      # carried never closed the original bug there at all.
+      #
+      # Fixed with a wait scoped to ONLY this push, not a lock any other
+      # push could ever contend on: poll for `zekini_pre_push_pid` (this
+      # push's own foreground process, captured before this subshell
+      # forked) to exit — i.e. wait for every gate THIS push runs (Unit,
+      # Feature, browser, all the way to the script's own final line) to
+      # finish. No lock file, no fd, nothing shared with a later,
+      # independent push's own run. Portable (no flock dependency, so this
+      # closes the collision on macOS too, not just Linux/WSL). Bounded at
+      # 30 minutes so a genuinely wedged foreground run doesn't leave this
+      # waiting forever — same "never blocks indefinitely" shape as
+      # BROWSER_TIMEOUT_SECONDS elsewhere in this file; past that ceiling
+      # this proceeds anyway, accepting the small residual collision risk
+      # rather than never reviewing at all.
+      zekini_review_wait_deadline=$(($(date +%s) + 1800))
+      while kill -0 "$zekini_pre_push_pid" 2>/dev/null; do
+        [ "$(date +%s)" -lt "$zekini_review_wait_deadline" ] || break
+        sleep 1
+      done
+
+      # ZST-960, 2026-10-22: `--permission-prompts none` only denies what would have
+      # PROMPTED — "the permission mode still decides everything else" (claude --help).
+      # With no --permission-mode given, this inherited whatever mode the machine's own
+      # settings default to, and on at least one machine that was permissive enough that
+      # an unattended "report-only" review edited the pusher's OWN working tree (Loupe,
+      # uncommitted changes in four files after a push, matching the panel's findings) —
+      # racing the very session that just pushed. "report-only, never blocks" must be
+      # true structurally, not by the model choosing to only report: plan mode is Claude
+      # Code's own look-but-never-touch mode, so a write is refused outright here even if
+      # asked for, never silently allowed by whatever mode happened to be ambient.
+      #
+      # ZST-969 checked the worry that plan mode would starve the panel: a real run
+      # with exactly these flags (claude 2.1.307, 2026-10-23) ran the skill's
+      # `git diff` without a denial (permission_denials: []), never reached for
+      # ExitPlanMode, and ended with findings on stdout. Plan mode refuses writes,
+      # not reads. If a future CLI changes that, this log is where it shows: a run
+      # that ends on a plan or "(none)" for a diff with real findings.
+      "$claude_bin" -p "/code-review high" \
+        --model "$zekini_review_model" \
+        --permission-mode plan \
+        --permission-prompts none \
+        >>"$review_log" 2>&1
+    ) &
+    disown
+
+    echo "▶ pre-push: adversarial review panel dispatched in the background — findings land in $review_log once this push finishes (it starts after the gates below; report-only, never blocks)."
+    fi
+  else
+    echo "⚠ pre-push: $review_dir is not writable — the mechanized review panel did not run this time (report-only, not a gate)." >&2
+  fi
+else
+  echo "⚠ pre-push: '$claude_bin' not found — the mechanized review panel did not run this time (report-only, not a gate)." >&2
+fi
+
+# ⚠️ Known limitations, not fixed here:
+# - `/code-review high` reviews the CURRENTLY CHECKED-OUT working tree's
+#   diff, not necessarily the exact ref being pushed — `git checkout main &&
+#   git push origin local-feature:remote-feature` (pushing a non-checked-out
+#   ref) reviews whatever main's tree looks like, not local-feature.
+# - A multi-branch push gets exactly ONE dispatch regardless of how many
+#   non-hotfix branches were pushed (review_needed is a single flag, not
+#   one per branch) — it reviews the checked-out tree once, not once per
+#   pushed branch.
+#   Both stem from the same root cause: this reviews a TREE, not a specific
+#   commit or ref. Snapshotting each pushed ref into its own throwaway
+#   worktree and reviewing THAT would close both gaps at once, but is real
+#   extra machinery for a report-only, best-effort feature — not built.
+# - The backgrounded process reads the live working tree, but a push or
+#   checkout on this same working copy while the ~10-minute review is still
+#   running changes what it reads mid-flight — the same "checked-out tree
+#   moved" hazard zekini_require_tree guards the SYNCHRONOUS gates against,
+#   just not extended to this async one, for the same worktree-snapshotting
+#   reason above.
+
+# SAIL_BIN is a TEST SEAM, not a bypass. Promoted from loupe 2026-08-18
+# (ZST-133, its card 308): its tests stand a no-op in for Sail (`/bin/false`,
+# `/bin/true`) so the tag fast path is proved by the run SUCCEEDING — which is
+# the only way to assert "not one step of the suite executed". With the path
+# hard-coded, this file cannot be tested that way at all.
+#
+# ⚠️ Never set it by hand to skip the gate. That is what --no-verify is, and the
+# reason neither is an answer is the whole argument of this hook: a gate people
+# route around costs every other check in the file.
+#
+# ⚠️ ZST-343: `sail_run` (lib/sail-tree.sh) reads `$sail` at call time, and a
+# call routed through zekini_test_lock_run (below) runs `sail_run` inside a
+# genuinely new `bash "$lock_lib"` process that only inherits the
+# environment, never this script's local variable table — so that path
+# needs `$sail` EXPORTED, not just assigned. Left unexported here (found in
+# review: exporting it for the script's whole lifetime leaks a generic,
+# unnamespaced `sail` name into every later host subprocess this hook spawns
+# — docker, git, sail itself — for no reason the other, non-lock-routed
+# `sail_run` call sites need); zekini_test_lock_run exports it only for the
+# duration of its own re-exec, then un-exports it again.
+sail="${SAIL_BIN:-./vendor/bin/sail}"
+
+# Fresh clone / CI without deps installed — nothing to run, don't block.
+#
+# ⚠️ Found in review (ZST-320's pre-commit fix, same gap left open here):
+# this exited silently, indistinguishable from a clean run, on a fresh
+# clone or one where vendor/bin/sail merely lost its exec bit — the exact
+# problem pre-commit's own matching guard was just fixed to stop having.
+if [ ! -x "$sail" ]; then
+  echo "⚠ pre-push: $sail not found or not executable — skipping every gate below (fresh clone or CI without deps installed)." >&2
+  exit 0
+fi
+
+fail() {
+  echo "✗ pre-push: $1 failed. Push aborted. Fix it and run the gate again — bin/zekini-push needs a green run, so bare --no-verify is not the way past it." >&2
+  exit 1
+}
+
+# ── Check the branch being pushed, not whatever is mounted at /var/www/html ────
+#
+# Without this, a push from a worktree sharing the main checkout's Sail stack is
+# judged against the main checkout. See lib/sail-tree.sh for the full account;
+# the short version is that it once failed an honest branch on errors belonging
+# to another session's uncommitted work, and would just as happily pass a broken
+# branch whose defects are absent there.
+#
+# Sourced relative to this script, not via `git rev-parse`: the hook is also run
+# directly (and copied into a sandbox by its own tests), where there is no
+# repository to ask.
+# shellcheck source=.githooks/lib/sail-tree.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/sail-tree.sh"
+
+zekini_require_tree || exit 1
+
+# Repo policy (.githooks/config) is already sourced, at the top of this file
+# — see the note there for why it moved.
+
+# ── Diff-aware frontend lanes (ZST-217) ───────────────────────────────────────
+#
+# Raised after a push whose entire diff was bin/deploy-xneelo.sh + a VERSION
+# bump — zero application code — still ran the full suite, then failed on
+# test-database contention from a concurrent run rather than on anything in
+# the change. A longer gate is a wider window for two suites to collide on
+# the shared testing_test_N databases, so running less runs into that less.
+#
+# Per-lane, not "skip tests when the diff looks small" — that is how a gate
+# stops being one:
+#   * SPA typecheck / vitest / the browser group — skipped below when nothing
+#     frontend changed.
+#   * Backend suite, mago lint/analyse, generated-artifact verifies — ALWAYS,
+#     unconditionally, regardless of this section. A route or middleware
+#     change can break the SPA shell tests the browser group exercises, so
+#     "backend only" never means "frontend safe" — the asymmetry only runs
+#     the other way. (ZST-891: the backend suite always RUNS; a repo's own
+#     ZEKINI_TEST_SELECTOR may narrow it to the test groups this push's
+#     changed paths need — see "The repo's own test selector" below.)
+#
+# The changed-path set is the UNION across every commit in the pushed range,
+# not HEAD~1..HEAD — a rebase or merge commit makes a single diff ambiguous,
+# and a branch that touched web/ five commits back must not lose the lane
+# because only PHP changed in the tip commit.
+#
+# Silent-but-safe where it cannot know, same rule as the version check above:
+# no fetch, no merge-base, or an empty branch_shas list all mean "run the
+# frontend lanes" — a gate that cannot see must not guess its way to skipping.
+#
+# ZST-891: the same loop also keeps that union, for the backend suite's test
+# selector (lib/test-stages.sh rule 7) — one notion of "what this push
+# changed", not a second. zekini_changed_paths_known is 1 only when every
+# commit in the range was diffed: no fetch, no merge-base or a failed diff
+# leaves it 0, and the selector is then never asked (the full suite runs).
+zekini_run_frontend=1
+zekini_skip_frontend_reason=""
+zekini_changed_paths=""
+zekini_changed_paths_known=0
+
+# ZST-315: the pattern definitions, zekini_changed_paths_touch_frontend,
+# zekini_validate_skip_pattern and zekini_classify_diff all moved into
+# lib/frontend-skip.sh — three real bugs (SIGPIPE under pipefail, an
+# empty-diff false-positive, per-path vs per-diff classification) had been
+# found by hand in this exact classification shape and none were caught by
+# a test, because the logic lived inline here rather than in a sourceable,
+# fixture-testable function the way lib/sail-tree.sh already is. See that
+# file for the full history (ZST-217/ZST-249/ZST-284/ZST-313) and
+# snippets/zekini-skip-classify.test.php for the coverage this now has.
+# ⚠️ Explicit `|| exit 1`, unlike lib/sail-tree.sh's source line a few lines
+# up — that one is implicitly guarded by the zekini_require_tree call right
+# after it (a missing sail-tree.sh means that function doesn't exist, so
+# calling it fails fast with a clear "command not found"). Nothing calls
+# straight into this file's functions immediately after sourcing it, so
+# without an explicit guard a missing frontend-skip.sh (a two-file rollout,
+# easy to sync out of order) would leave ZEKINI_FRONTEND_PATTERN unset and
+# crash much later, deep in the branch_shas loop, under this file's own
+# `set -u` — "unbound variable", not a clear message pointing at the real
+# cause. Verified live: sourcing a nonexistent file returns non-zero, so
+# `|| exit 1` catches it right here instead.
+# shellcheck source=.githooks/lib/frontend-skip.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/frontend-skip.sh" || exit 1
+
+# ZST-295: the staged backend-suite plan (unit → feature, and how the browser
+# group is kept out of — or folded into — them). Same `|| exit 1` reasoning
+# as the line above: nothing calls into it until the backend-suite section,
+# so a missing file would surface as "command not found" deep in the run.
+# shellcheck source=.githooks/lib/test-stages.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/test-stages.sh" || exit 1
+
+# Escape hatch: forces every lane regardless of what the diff scan below
+# finds. Repo policy (.githooks/config) or a one-off export, same shape as
+# every other switch in this file. Read ONCE into zekini_full_gate: the test
+# selector below honours the same switch, and two copies of the truthy list
+# drift (ZST-969). Read before the scan, not after it, because a full-gate
+# push leaves nobody to read the scan's walk (ZST-971).
+zekini_full_gate=0
+case "${ZEKINI_FULL_GATE:-}" in
+  1 | true | TRUE | True | yes | on) zekini_full_gate=1 ;;
+esac
+
+if [ "${#branch_shas[@]}" -gt 0 ] && command -v git >/dev/null 2>&1; then
+  # ⚠️ ZST-313: validated here, not unconditionally above — a tag-only or
+  # branch-deletion-only push leaves branch_shas empty, so the classification
+  # below never runs and zekini_skip_patterns_valid is never read; forking
+  # grep twice for a result nobody consults contradicts this section's own
+  # keeping-pushes-fast goal.
+  zekini_skip_patterns_valid=1
+  zekini_validate_skip_pattern ZEKINI_FRONTEND_PATTERN "$ZEKINI_FRONTEND_PATTERN" || zekini_skip_patterns_valid=0
+  zekini_validate_skip_pattern ZEKINI_SAFE_TO_SKIP_PATTERN "$ZEKINI_SAFE_TO_SKIP_PATTERN" || zekini_skip_patterns_valid=0
+
+  # Same memoized fetch zekini_check_version uses (reuses its FETCH_HEAD if
+  # that already ran; only attempts one itself if nothing tried yet — a prior
+  # failed attempt is no more likely to succeed a few lines later). Unlike
+  # that function, a failed fetch here is silent: this scan already defaults
+  # to running the frontend lanes when it cannot tell, so there is nothing
+  # extra to warn about beyond what zekini_check_version already printed.
+  # ⚠️ Caught in review (ZST-262): this used to also write
+  # $zekini_version_fetch_done=1 on a failed attempt, but nothing anywhere in
+  # this file reads that variable after this point — the actual memoization
+  # for THIS call is already handled by zekini_ensure_protected_fetch's own
+  # internal $zekini_version_fetch_ok check, so the write was dead, vestigial
+  # state left over from an earlier shape of this scan.
+  zekini_ensure_protected_fetch
+
+  # ZST-891: walked whenever the fetch worked, so the changed-path union exists
+  # even where a broken skip pattern refuses the frontend classification; the
+  # classification and the skip decision below still need both.
+  #
+  # ZST-969: …but only when something reads the walk. Broken skip patterns and
+  # no ZEKINI_TEST_SELECTOR leave nobody to read it (the frontend lanes run
+  # anyway, the selector is never asked), and a merge-base plus a diff per
+  # pushed commit for nothing is the cost this section exists to avoid. The
+  # union is then not known, which is exactly what it is.
+  #
+  # ZST-971: ZEKINI_FULL_GATE leaves nobody to read it either: it forces the
+  # frontend lanes on, and the selector is never asked under it.
+  if [ "$zekini_version_fetch_ok" -eq 1 ] && [ "$zekini_full_gate" -eq 0 ] \
+     && { [ "$zekini_skip_patterns_valid" -eq 1 ] || [ -n "${ZEKINI_TEST_SELECTOR:-}" ]; }; then
+    zekini_changed_paths_known=1
+    any_unknown=0
+    any_frontend=0
+    # ZST-313: whether ANY commit actually had a non-empty diff to classify —
+    # distinct from any_unknown/any_frontend staying 0, which also happens
+    # when every commit in the range was already an ancestor of FETCH_HEAD
+    # (nothing to diff at all). Without this, the skip message below claims
+    # paths were examined and matched criteria when zero paths were ever fed
+    # to grep.
+    any_examined=0
+    idx=0
+    while [ "$idx" -lt "${#branch_shas[@]}" ]; do
+      sha="${branch_shas[$idx]}"
+      base="$(git merge-base "$sha" FETCH_HEAD 2>/dev/null)"
+      if [ -z "$base" ]; then
+        any_unknown=1
+        zekini_changed_paths_known=0
+      else
+        # ZST-250: found by mail — under this file's own `pipefail`, a
+        # genuine `git diff` failure produces empty stdout, which used to
+        # read identically to "diff succeeded, nothing changed" against a
+        # bare `grep -qE`. Capture git diff's own exit status separately
+        # from the per-path classification below.
+        diff_output="$(git diff --name-only "$base" "$sha" 2>/dev/null)"
+        if [ $? -ne 0 ]; then
+          any_unknown=1
+          zekini_changed_paths_known=0
+        else
+          # ZST-315: the actual classification (per PATH, not per diff; the
+          # SIGPIPE and empty-diff pitfalls; two grep calls per commit, not
+          # two per file) now lives in zekini_classify_diff
+          # (lib/frontend-skip.sh) — unit-tested there directly. any_examined
+          # tracks whether this commit had anything to classify at all,
+          # separately from the function's own empty-input short-circuit,
+          # since the skip message below needs to distinguish "examined and
+          # matched" from "nothing was ever examined".
+          #
+          # ⚠️ Caught in review: the `if [ -n "$diff_output" ]` guard has to
+          # wrap the function CALL too, not just any_examined — command
+          # substitution always forks a subshell regardless of what the
+          # function itself does with an empty argument, so calling
+          # zekini_classify_diff unconditionally would fork one on every
+          # already-an-ancestor commit, exactly the unnecessary-subprocess
+          # cost this file has hand-optimized away everywhere else on this
+          # hot path.
+          if [ -n "$diff_output" ]; then
+            any_examined=1
+            zekini_changed_paths="${zekini_changed_paths:+${zekini_changed_paths}$'\n'}${diff_output}"
+            if [ "$zekini_skip_patterns_valid" -eq 1 ]; then
+              read -r zekini_diff_frontend zekini_diff_unknown <<< "$(zekini_classify_diff "$diff_output")"
+              [ "$zekini_diff_frontend" -eq 1 ] && any_frontend=1
+              [ "$zekini_diff_unknown" -eq 1 ] && any_unknown=1
+            fi
+          fi
+        fi
+      fi
+      idx=$((idx + 1))
+    done
+
+    if [ "$zekini_skip_patterns_valid" -eq 1 ] && [ "$any_unknown" -eq 0 ] && [ "$any_frontend" -eq 0 ]; then
+      zekini_run_frontend=0
+      # ⚠️ Caught in review: this message used to hard-code the DEFAULT
+      # deny-list's contents, but ZEKINI_SAFE_TO_SKIP_PATTERN/
+      # ZEKINI_FRONTEND_PATTERN are now overridable via .githooks/config (a
+      # few dozen lines up) — and, since ZST-314, extendable additively via
+      # ZEKINI_SAFE_TO_SKIP_PATTERN_EXTRA / ZEKINI_FRONTEND_PATTERN_EXTRA,
+      # the preferred form (lib/frontend-skip.sh) — so a repo running a
+      # customized pattern would see this message describe criteria it
+      # isn't actually using. State what happened, not what the (possibly
+      # stale) default criteria are.
+      #
+      # ⚠️ ZST-313: the branch below is the ZST-313 fix — any_unknown/
+      # any_frontend also stay 0 when every commit was already an ancestor of
+      # FETCH_HEAD (nothing to diff at all, any_examined never set), which
+      # this message used to describe identically to "examined every path and
+      # they all matched", asserting a classification that never happened.
+      if [ "$any_examined" -eq 1 ]; then
+        zekini_skip_frontend_reason="every changed path across the pushed range matched this repo's safe-to-skip criteria — nothing frontend, and nothing unclassified"
+      else
+        zekini_skip_frontend_reason="every commit in the pushed range was already an ancestor of the remote — nothing to diff"
+      fi
+    fi
+  fi
+fi
+
+# The ZEKINI_FULL_GATE escape hatch (read above the diff scan): forces every
+# lane regardless of what the scan found.
+if [ "$zekini_full_gate" -eq 1 ]; then
+  zekini_run_frontend=1
+  zekini_skip_frontend_reason=""
+fi
+
+# ── Per-developer fast-iteration switch ───────────────────────────────────────
+#
+# Set SKIP_SLOW_TESTS=true in .env (or export it) to skip the slow suites during
+# heavy iteration; set it false or remove it to restore the full gate. Read from
+# the shell first, then from .env, so a one-line edit in your local .env flips it
+# for the day.
+#
+# It ONLY skips the test suites. The fast, cheap gates — mago lint/analyse and
+# the SPA typecheck + build — always run, because those are what catch a broken
+# deploy, and they cost seconds, not minutes. .env is gitignored, so this can
+# never be committed on.
+skip_slow="${SKIP_SLOW_TESTS:-}"
+if [ -z "$skip_slow" ] && [ -f .env ]; then
+  skip_slow="$(grep -E '^SKIP_SLOW_TESTS=' .env | tail -n1 | cut -d= -f2- || true)"
+  skip_slow="${skip_slow//\"/}"          # strip double quotes
+  skip_slow="${skip_slow//\'/}"          # strip single quotes
+  skip_slow="${skip_slow//[[:space:]]/}" # strip surrounding whitespace
+fi
+
+zekini_slow_skipped() {
+  case "$skip_slow" in
+    1 | true | TRUE | True | yes | on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ── Batch mode vs SKIP_SLOW_TESTS (ZST-1097) ──────────────────────────────────
+#
+# Local batch mode is central `repos_off` plus this per-developer switch, and either
+# one without the other is a half-entered batch (docs/batch-mode.md, ZST-1078): Kadro's
+# session flipped only the board flag and the next push ran the full browser group.
+# lib/batch-mode-guard reads `repos_off` from the hub's settings record with this
+# machine's worker token (GET, read-only) and prints a loud warning on either mismatch.
+#
+# It WARNS, never blocks, and is silent on every failure — no token, no curl/python3,
+# an unreachable or slow hub. A batch-mode warning is not worth a failed push, and it
+# must be right: a false alarm on every push trains people to ignore it. The guard is
+# optional in a checkout that has not re-synced lib/ yet (hook-drift tracks it).
+zekini_batch_repo_name() {
+  local url
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  if [ -n "$url" ]; then
+    url="${url%.git}"
+    printf '%s\n' "${url##*[/:]}"
+  else
+    basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  fi
+}
+
+zekini_batch_mode_warn() {
+  local guard
+  guard="$(dirname "${BASH_SOURCE[0]}")/lib/batch-mode-guard"
+  [ -x "$guard" ] || return 0
+  "$guard" "$(zekini_batch_repo_name)" "$skip_slow" || true
+}
+
+zekini_batch_mode_warn
+
+# Repo policy, from the committed .githooks/config — NOT a per-developer switch.
+# Defaults ON: an unset value must never quietly remove a gate.
+zekini_browser_in_prepush() {
+  case "${ZEKINI_BROWSER_IN_PREPUSH:-1}" in
+    0 | false | FALSE | False | no | off) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Does this repo HAVE browser specs? (KAD-1376)
+#
+# ⚠ Asks the question the gate actually depends on — "is there anything in the
+# `browser` group" — rather than guessing from a directory name.
+#
+# It used to be `[ -d tests/Browser ]`, and in kadro that directory is the
+# gitignored place Pest's browser plugin WRITES ITS SCREENSHOTS; the specs live
+# under tests/Feature/Browser. So the guard passed for a reason unrelated to what
+# it was checking, and would have answered NO the first time a fresh clone, a
+# `git clean` or a container rebuild removed an empty directory nobody knew
+# mattered — a gate that stops existing, with no warning and no failure.
+#
+# Both spellings, because a repo may use Pest's `->group('browser')` or PHPUnit's
+# `#[Group('browser')]` / `@group browser`, and the runner accepts all of them.
+#
+# Extended 2026-08-31 (whatsapp): the PHP 8.4 attribute forms with a
+# double-quoted string or a named argument — `#[Group("browser")]`,
+# `#[Group(name: 'browser')]` — silently missed, no warning, before this.
+zekini_has_browser_tests() {
+  [ -d tests ] || return 1
+
+  grep -rlq --include='*.php' \
+    -e "group('browser')" \
+    -e 'group("browser")' \
+    -e '@group browser' \
+    -e "Group('browser')" \
+    -e 'Group("browser")' \
+    -e "name: *'browser'" \
+    -e 'name: *"browser"' \
+    tests 2>/dev/null
+}
+
+# ZST-242: memoizes the above — a recursive `grep -rl` over the whole `tests/`
+# tree, called 3 times per push (browser_exclude, backend_carries_browser, the
+# dedicated browser step's own gate) for an answer that cannot change mid-run.
+# Same pattern as zekini_supports_sort_v (ZST-214): checked once, cached, reused.
+zekini_has_browser_tests_checked=0
+zekini_has_browser_tests_result=1
+zekini_has_browser_tests_memo() {
+  if [ "$zekini_has_browser_tests_checked" -eq 0 ]; then
+    zekini_has_browser_tests_checked=1
+    if zekini_has_browser_tests; then
+      zekini_has_browser_tests_result=0
+    else
+      zekini_has_browser_tests_result=1
+    fi
+  fi
+  return "$zekini_has_browser_tests_result"
+}
+
+# ── Storage-writable preflight, deliberately FIRST ─────────────────────────────
+#
+# Promoted from loupe 2026-08-31 (ZST-127, its card 272). A storage directory
+# the current user cannot write does not fail as a permission error — it fails
+# as a score of unrelated tests throwing FilesystemIterator from inside
+# vendor/, on files nobody touched, with the set of failures moving between
+# runs so it reads as flakiness. Catching it here costs a second and ends the
+# search before it starts. release-testing.md row 1 already names this as a
+# fleet-wide blocking check; this is what actually wires it in.
+#
+# Gated on the command existing — `ops:check-storage-writable` is loupe's own
+# artisan command, not yet ported to every repo. A repo without it skips this
+# step rather than erroring on a command that isn't there, same shape as the
+# web/ gates below adapting to whether web/package.json exists.
+if [ -f app/Console/Commands/CheckStorageWritable.php ]; then
+  echo "▶ pre-push: storage writable…"
+  sail_run php artisan ops:check-storage-writable || fail "storage writable"
+fi
+
+# ── Orphan reaper, before either suite runs (ZST-157, ZST-174) ────────────────
+#
+# Found on Kadro (KAD-1444): a FAILED pre-push attempt leaks a
+# `playwright run-server` process (SIGTERM reaches the wrapping `sh`, not the
+# `node` behind it), and the NEXT attempt's browser stage inherits it —
+# reading as a flaky, unrelated test rather than as the actual cause. Reaping
+# unconditionally here, before the backend or browser suite runs, catches
+# that leak from the previous attempt rather than leaving it to accumulate
+# across every retry.
+#
+# Reference implementation and full reasoning: `snippets/reap-test-orphans.sh`
+# (built by fleet-mail, MAI-89/MAI-109) — copy it into a repo's own
+# `bin/reap-test-orphans`, executable, along with
+# `snippets/reap-test-orphans.test.php` into `tests/Feature/`. Gated on the
+# file existing, same shape as `bin/parallel-suite` above: a repo without it
+# yet gets nothing extra, never an error on a script that isn't there.
+#
+# ⚠️ Called a SECOND time, immediately before the browser stage further down
+# — ZST-199 (fleet-whatsapp, WHA-112). `pest-plugin-browser`'s method filter
+# starts a real `playwright run-server` just to IDENTIFY the first
+# `tests/Browser` spec while PHPUnit enumerates tests, before group
+# exclusion is even applied — so a bare `composer test`
+# (`--exclude-group=browser`) leaks one every time, despite never touching
+# anything browser-related. This one call at the top reaps a leak from an
+# EARLIER attempt, but not this one: the backend suite that runs between
+# here and the browser stage leaks its OWN stray server, which then sits
+# alongside the browser stage's server for its whole run — read on
+# fleet-whatsapp as "not reproducible outside this server" load-dependent
+# flakiness in its auth-race retries, not as what it actually was.
+zekini_reap_test_orphans() {
+  # Never `|| fail` — reaping is best-effort cleanup, not a gate, and a repo
+  # with a genuinely leaking suite should still get to push. But silent is
+  # wrong too: a non-executable or broken copy must not look identical to a
+  # clean reap, which is the exact "looks like it's working while doing
+  # nothing" failure the script's own header warns about, one layer up.
+  [ -f bin/reap-test-orphans ] || return 0
+  sail_run bin/reap-test-orphans ||
+    echo "⚠ pre-push: bin/reap-test-orphans failed to run (check it is executable) — continuing." >&2
+}
+
+zekini_reap_test_orphans
+
+# ── Backend: full CI-equivalent ───────────────────────────────────────────────
+#
+# Promoted from loupe 2026-08-31 (ZST-127, its card 277): bare `mago lint`
+# prints ~280 issues of which none gate, so the one error that DOES fail the
+# push is invisible, and a hook's output is routinely truncated before mago's
+# summary line even appears. `ops:lint` prints the errors and counts the
+# rest, keeping every flag `composer lint` carries. Gated the same way as the
+# storage-writable check above — a repo without the command falls back to the
+# plain report.
+if [ -f app/Console/Commands/LintGate.php ]; then
+  echo "▶ pre-push: mago lint (ops:lint)…"
+  sail_run php artisan ops:lint || fail "lint"
+else
+  echo "▶ pre-push: mago lint…"
+  sail_run composer lint || fail "lint"
+fi
+
+# `composer analyse` runs with --fail-on-out-of-sync-baseline, and that is the
+# ONLY gate for the mirror image of pre-commit's added-file check: a commit that
+# DELETES code orphans the baseline entries for findings that no longer exist.
+#
+# It cannot be caught at commit time. Knowing a deletion orphaned an entry needs
+# a full-repo analyse — a pre-push cost, not a pre-commit one — so this is where
+# it belongs, and there is nothing cheaper to add earlier.
+#
+# Which means the only way that reaches main is `--no-verify`. It has happened.
+echo "▶ pre-push: mago analyse…"
+sail_run composer analyse || fail "analyse"
+
+# ── Parallel backend suite, where the repo has opted in ───────────────────────
+#
+# The serial suite is the slowest thing in the loop, and the cost is paid on every
+# push. Paratest cuts it roughly in half to a quarter, but only a repo that has
+# proven its suite parallel-safe may switch: the failure mode is a test that
+# passes alone and fails beside itself, which reads as a code bug.
+#
+# So the switch is repo policy (committed .githooks/config), OFF by default, and
+# it degrades to the serial run rather than blocking when it is set without the
+# runner installed — a misconfigured switch must not stop an honest push, but it
+# must be loud, because silently running serially is how a repo "adopts" this and
+# never notices it did nothing.
+zekini_test_args() {
+  case "${ZEKINI_PARALLEL_TESTS:-}" in
+    '' | 0 | false | FALSE | False | no | off) return ;;
+  esac
+
+  if [ ! -f vendor/bin/paratest ]; then
+    echo "⚠ ZEKINI_PARALLEL_TESTS is set but brianium/paratest is not installed — running the suite serially." >&2
+    echo "  Add it (composer require --dev brianium/paratest) or unset the switch in .githooks/config." >&2
+    return
+  fi
+
+  # `1` is boolean true, NOT a worker count — every other switch in this file
+  # accepts it as true, so reading it as --processes=1 would give the slowest
+  # possible run (serial, plus paratest's overhead) to someone who wrote what the
+  # file taught them elsewhere. A genuine single worker is deliberately not
+  # expressible: it is the serial run, which is what leaving this unset gives you.
+  case "${ZEKINI_PARALLEL_TESTS}" in
+    1 | true | TRUE | True | yes | on) echo "--parallel" ;;
+    *[!0-9]*) echo "--parallel" ;;
+    *) echo "--parallel --processes=${ZEKINI_PARALLEL_TESTS}" ;;
+  esac
+}
+
+if zekini_slow_skipped; then
+  echo "⏩ SKIP_SLOW_TESTS is on — SKIPPING the backend test suite." >&2
+  echo "  Set SKIP_SLOW_TESTS=false in .env (or unset it) to restore the full gate before shipping anything risky." >&2
+  zekini_green_skip backend
+else
+  # Unquoted on purpose: word-splitting is how the two flags arrive as two args.
+  # shellcheck disable=SC2046
+  test_args=$(zekini_test_args)
+
+  # ── Route through bin/parallel-suite where the repo has one ────────────────
+  #
+  # `--parallel` shards onto `testing_test_1…N`, so two runs sharing those
+  # tables corrupt each other's schema mid-flight — a Postgres deadlock or a
+  # "relation does not exist" that reads as a broken database, not as
+  # contention (KAD-1486, ZST-154). A repo that has proven this failure mode
+  # already built the fix: `bin/parallel-suite` wraps the exact same
+  # `php artisan test --parallel` call in `Tests\Support\ExclusiveRunLock`, the
+  # advisory lock `composer test` already takes there. Calling
+  # `php artisan test --parallel` here directly — as this hook always did —
+  # bypasses that lock even though it targets the same databases, so a push
+  # colliding with another push or a `composer test` deadlocks instead of
+  # queueing.
+  #
+  # Only routed when $test_args is non-empty: with ZEKINI_PARALLEL_TESTS unset
+  # the suite runs serial against the single default `testing` database, which
+  # is not the resource the lock protects, so there is nothing to route.
+  # `bin/parallel-suite` itself always forwards its args into
+  # `php artisan test --parallel …`, so passing $test_args through unchanged is
+  # safe even though it may already contain `--parallel` — a repeated boolean
+  # flag is a no-op, not an error.
+  # Promoted from whatsapp 2026-08-31 (WHA-91), appended at the call site
+  # rather than folded into $test_args above — $test_args also decides whether
+  # this run routes through bin/parallel-suite, and making it non-empty
+  # unconditionally would route every push through bin/parallel-suite even
+  # with ZEKINI_PARALLEL_TESTS unset, forcing a parallel run the switch never
+  # asked for (bin/parallel-suite always adds `--parallel` itself; verified
+  # against kadro's reference impl — it forwards extra argv straight into
+  # `proc_open` with no flag parsing of its own, so passing this through is
+  # safe). Once a repo's phpunit.xml gains a `Browser` testsuite entry (needed
+  # for the dedicated `--group=browser` step further down to discover
+  # anything at all — PHPUnit only scans directories a testsuite names), a
+  # bare `php artisan test` with no group filter runs EVERY configured
+  # testsuite, browser included — silently double-running the Chromium suite
+  # here, before the frontend build below has even happened yet.
+  #
+  # ⚠ Gated on the SAME detector the dedicated browser step below uses
+  # (zekini_has_browser_tests && zekini_browser_in_prepush), not applied
+  # unconditionally — caught in review: excluding the group here regardless of
+  # whether the dedicated step will actually run removes the ONLY place those
+  # tests would otherwise run at all for a repo where that step is skipped (no
+  # web/package.json, ZEKINI_BROWSER_IN_PREPUSH=false, or a detector miss on a
+  # multi-argument group tag like `group('smoke', 'browser')`) — turning
+  # "double-run" into "never runs", silently, which is strictly worse. Gating
+  # on the exact same functions means the two decisions can never disagree:
+  # whenever the dedicated step is going to run, this excludes; whenever it
+  # isn't, this doesn't, and the old unfiltered-but-at-least-it-runs behaviour
+  # is what a repo keeps for that edge case. (The claim that composer.json's
+  # own `test` script already carries this exclusion did not hold up against
+  # this repo's own canonical script in coding-standards.md — dropped rather
+  # than repeated unverified.)
+  #
+  # ⚠️ Caught in review (ZST-217): this must stay UNCONDITIONAL on
+  # zekini_run_frontend, not gated on it. When the diff-aware scan above skips
+  # the whole frontend block, it also skips the web BUILD — so the dedicated
+  # browser step's shell/bundle on disk is either stale (from an earlier push)
+  # or, on a fresh clone, doesn't exist at all. Folding those specs into the
+  # backend suite instead of dropping them would run them against that
+  # stale-or-missing artifact and fail (or misleadingly pass) for a reason
+  # that has nothing to do with the pushed change. So when frontend lanes are
+  # skipped, browser tests are DROPPED for this push, not folded — same as
+  # the "dedicated step is going to run" case, both exclude here. Force a
+  # real run with ZEKINI_FULL_GATE=true, which restores the build too.
+  browser_exclude=""
+  if zekini_has_browser_tests_memo && zekini_browser_in_prepush; then
+    browser_exclude="--exclude-group=browser"
+  fi
+
+  # ZST-242: browser_exclude is only set when BOTH zekini_has_browser_tests and
+  # zekini_browser_in_prepush are true. If the repo genuinely has no browser
+  # tests, an empty browser_exclude is harmless — there's nothing to exclude.
+  # But if the repo DOES have them and browser_exclude is still empty, that
+  # can only be ZEKINI_BROWSER_IN_PREPUSH explicitly turned off — a developer
+  # opting OUT of the dedicated browser step below (which shares this same
+  # gate). That opt-out does not actually stop the tests from running: once
+  # phpunit.xml lists a Browser testsuite, a bare `php artisan test`/
+  # `bin/parallel-suite` call with no group filter runs EVERY configured
+  # testsuite, browser included — inheriting the exact pest-plugin-browser
+  # startup-wedge risk ZST-213 fixed for the dedicated step, but here with NO
+  # timeout at all.
+  #
+  # Deliberately NOT an EXPLICIT timeout around the whole backend suite
+  # always — a legitimately slow-but-healthy full run would get falsely
+  # killed for a reason that has nothing to do with browser tests. Only
+  # wraps this call in one when it's actually carrying the browser group
+  # unfiltered. A longer ceiling than the dedicated step's 120s
+  # (BACKEND_BROWSER_TIMEOUT_SECONDS, default 600s) — this is backend suite
+  # + browser combined, not browser alone.
+  #
+  # ⚠️ ZST-344: "no timeout" stopped being true the moment the machine-wide
+  # test queue below became mandatory (ZST-258/332) — EVERY call routed
+  # through zekini_test_lock_run, this unwrapped plain-stage one included,
+  # now runs under fleet-test-lock.sh's own `ZEKINI_TEST_LOCK_MAX_HOLD`
+  # ceiling (default 900s), because that queue wraps whatever it's handed in
+  # its own `timeout`, whether or not the caller added one of its own. A
+  # legitimately slow-but-healthy full run CAN still be falsely killed by
+  # it — found live: a real suite once measured 897s, 3s under the default.
+  # `ZEKINI_TEST_LOCK_MAX_HOLD` (documented in
+  # docs/pre-push-performance.md, "The machine-wide test queue") is exactly
+  # the override for this: it's a floor, not a fit, and a repo whose plain
+  # backend stage genuinely runs close to it should raise it in
+  # `.githooks/config` — the same knob covers every call through the queue,
+  # not just this one, since the browser-carrying and dedicated-browser
+  # calls below always finish first anyway (their own explicit, shorter
+  # timeouts trip before this outer one ever could).
+  #
+  # ⚠️ Caught in review: this is a safety net around ZEKINI_BROWSER_IN_PREPUSH
+  # being off, not a fix that makes it actually mean "browser tests don't run
+  # on push" — the real root cause. The alternative (always set
+  # browser_exclude when the repo has browser tests, regardless of
+  # zekini_browser_in_prepush, so the backend suite never carries them
+  # unfiltered at all) was considered and deliberately not done here: that
+  # changes what turning ZEKINI_BROWSER_IN_PREPUSH off actually means fleet-
+  # wide — today it only skips the dedicated timed step; making it also
+  # exclude the group from the backend suite is a bigger behavioural change
+  # than this card asked for (a timeout safety net for the case that
+  # combination already produces), and would need its own decision + doc
+  # update (docs/pre-push-performance.md and docs/coding-standards.md both
+  # still describe the flag as removing browser coverage entirely — also
+  # stale against TODAY's behaviour, tracked separately, not fixed here).
+  backend_carries_browser=0
+  if [ -z "$browser_exclude" ] && zekini_has_browser_tests_memo; then
+    backend_carries_browser=1
+  fi
+
+  # ── Machine-wide test queue (ZST-258/ZST-332) — COMPULSORY, not opt-in ──
+  #
+  # This box (and every dev box like it) routinely runs several repos' Sail
+  # stacks at once. Loupe's composer-900s-timeout kills and Accounting's raw
+  # OOM kills were the same root cause wearing two symptoms — heavy test
+  # runs competing for memory/CPU with no coordination at all. The queue
+  # (snippets/fleet-test-lock.sh, synced here as lib/fleet-test-lock.sh) is
+  # the fix, and the owner's decision (2026-09-08) is that it is MANDATORY
+  # fleet-wide, on every repo, not a switch a repo can leave off — so there
+  # is no ZEKINI_* knob here to disable it, only the graceful "lib missing"
+  # degradation below for a repo that hasn't re-synced yet.
+  #
+  # The queue's own ticket state is plain files under a shared directory
+  # (/tmp/zekini-fleet-test-queue by default) — it belongs to no process and
+  # no terminal session, so it survives a session restarting, a terminal
+  # closing, or this hook being re-invoked; only a machine reboot clears it
+  # (tmpfs), which is exactly when there is nothing left queued anyway.
+  #
+  # Wraps the HOST-side command (before sail_run's docker compose exec),
+  # because the contention this exists for — host CPU/memory across several
+  # Sail stacks — is a host-level resource, not a container-level one.
+  zekini_test_lock_run() {
+    local lock_lib
+    lock_lib="$(dirname "${BASH_SOURCE[0]}")/lib/fleet-test-lock.sh"
+    if [ -f "$lock_lib" ]; then
+      # ⚠️ STOP-SHIP, found live by whatsapp on first adoption: every call
+      # site here passes `sail_run …` as "$@" — `sail_run` is a shell
+      # FUNCTION (lib/sail-tree.sh), not an external binary. fleet-test-
+      # lock.sh's own `timeout … "$@"` execve()s argv[0] directly (correct
+      # for its real job — wrapping an ordinary command like `composer
+      # test` when run standalone), and execve has no concept of a shell
+      # function no matter how it's exported: "timeout: failed to run
+      # command 'sail_run': No such file or directory", on EVERY push.
+      # Fixed by making the thing execve() actually finds be a real
+      # program (`bash`) that itself re-parses the command line as shell
+      # code, so ordinary function lookup applies. `export -f` puts the
+      # function definition in the environment (BASH_FUNC_sail_run%%) for
+      # the CHILD bash process fleet-test-lock.sh's `bash "$lock_lib"`
+      # spawns to inherit.
+      #
+      # ⚠️ ZST-343: `$sail` needs the same treatment — `sail_run`'s function
+      # BODY crosses via `export -f` above, but the `$sail` VALUE it reads at
+      # call time does not, since it was only ever assigned, never exported
+      # (found in review: exporting it unconditionally at assignment time,
+      # an earlier version of this fix, would leak a generic `sail` name
+      # into every OTHER host subprocess this hook spawns for the rest of
+      # the run). Exported here, right before the one call site that
+      # actually crosses a process boundary, and un-exported immediately
+      # after — `export -n` clears the export attribute without touching
+      # the value, so every call site outside this function keeps seeing a
+      # plain, unexported `$sail` exactly as before this fix.
+      local zekini_lock_status
+      export sail
+      export -f sail_run
+      bash "$lock_lib" -- bash -c '"$@"' bash "$@"
+      zekini_lock_status=$?
+      export -n sail
+      return "$zekini_lock_status"
+    else
+      # Degrades to running directly — a repo that hasn't re-synced this
+      # lib yet must not have every push start failing outright; missing
+      # infra is a drift finding (hook-drift.sh), not a push blocker.
+      echo "⚠ pre-push: .githooks/lib/fleet-test-lock.sh not found — running WITHOUT the machine-wide test queue (re-sync it from standards, ZST-332)." >&2
+      "$@"
+    fi
+  }
+
+  # Shared by every stage below so the timeout-vs-plain and wedge-vs-failure
+  # logic can't drift between them — same reasoning as this file's other
+  # extracted helpers (sail_run itself, zekini_has_browser_tests). $1 is the
+  # stage label (for the failure message); the rest is the actual
+  # backend-suite command, already word-split into its own args by the caller
+  # (test_args/stage args are unquoted on purpose).
+  zekini_run_backend_suite() {
+    local stage_label="$1"
+    shift
+    if [ "$backend_carries_browser" -eq 1 ]; then
+      # Per STAGE, deliberately (caught in review): the unit stage almost
+      # never holds a browser spec, but "almost" is a directory-name guess
+      # of exactly the kind KAD-1376 forbids, and an unwrapped stage that
+      # did carry one inherits the unbounded wedge ZST-213/242 exist to
+      # stop. So every stage takes the ceiling while the dedicated step is
+      # off — the ceiling is therefore per stage, not per run, and the
+      # banner names the stage so a slow unit stage isn't read as Chromium.
+      echo "  ([${stage_label}] carrying the browser group unfiltered, ZEKINI_BROWSER_IN_PREPUSH is off —"
+      echo "  timeout ${BACKEND_BROWSER_TIMEOUT_SECONDS:-600}s for this stage)…"
+      zekini_test_lock_run sail_run timeout --signal=TERM --kill-after=10 "${BACKEND_BROWSER_TIMEOUT_SECONDS:-600}" "$@"
+      backend_status=$?
+      # ZST-199's own comment above (this reap function's definition) says the
+      # backend suite leaks a stray pest-plugin-browser server on every run
+      # that touches the browser group at all — normally reaped by the SECOND
+      # call just before the dedicated browser step. That step is exactly
+      # what's skipped when backend_carries_browser=1 (ZEKINI_BROWSER_IN_PREPUSH
+      # is off), so without this, a leak here would sit unreaped until some
+      # LATER push's top-of-file reap call happens to catch it. Reap here,
+      # unconditionally, before branching on the exit status — a wedge/timeout
+      # is exactly the case most likely to have left something running.
+      zekini_reap_test_orphans
+      if [ "$backend_status" -eq 124 ]; then
+        fail "${stage_label} tests — killed after ${BACKEND_BROWSER_TIMEOUT_SECONDS:-600}s. Either a WEDGE (this stage may carry the browser group unfiltered because ZEKINI_BROWSER_IN_PREPUSH is off — a live chrome-headless-shell tree and no test output is the tell) or a stage that genuinely outgrew the per-stage ceiling. Override it with BACKEND_BROWSER_TIMEOUT_SECONDS, or turn ZEKINI_BROWSER_IN_PREPUSH back on so the dedicated, timed step handles the browser group instead."
+      elif [ "$backend_status" -ne 0 ]; then
+        fail "${stage_label} tests${zekini_stop_on_failure_note}"
+      fi
+    else
+      zekini_test_lock_run sail_run "$@" || fail "${stage_label} tests${zekini_stop_on_failure_note}"
+    fi
+  }
+
+  # ── The repo's own test selector (ZST-891, for KAD-2320) ──────────────────
+  #
+  # The asymmetry argument above (diff-aware frontend lanes) keeps the backend
+  # suite on every push; it does not oblige it to be EVERY backend test. A repo
+  # that names ZEKINI_TEST_SELECTOR in .githooks/config gets its script asked
+  # which test groups the pushed range's changed paths need, and the plan runs
+  # only those (lib/test-stages.sh rule 7). Everything this hook cannot vouch
+  # for runs the full suite, and says so: the protected branch and any tag in
+  # the push (a release is never judged on a subset), ZEKINI_FULL_GATE, no
+  # pushed branch to diff, or a range that could not be diffed. A repo that
+  # names no selector reaches none of this — its plan is byte for byte what it
+  # was. A selected run is not the full suite, so the green receipt lists
+  # `backend` as missing and bin/zekini-push refuses it (below the loop).
+  zekini_selected_groups=""
+  if [ -n "${ZEKINI_TEST_SELECTOR:-}" ]; then
+    zekini_selection_full_reason=""
+    zekini_current_branch="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
+    if [ "${zekini_full_gate:-0}" -eq 1 ]; then
+      zekini_selection_full_reason="ZEKINI_FULL_GATE is on"
+    fi
+    if [ -z "$zekini_selection_full_reason" ] && [ "${#tag_names[@]}" -gt 0 ]; then
+      zekini_selection_full_reason="a tag is in this push"
+    fi
+    if [ -z "$zekini_selection_full_reason" ] && [ "$zekini_current_branch" = "$protected" ]; then
+      zekini_selection_full_reason="this is ${protected}"
+    fi
+    for zekini_pushed_ref in "${branch_ref_names[@]}"; do
+      if [ -z "$zekini_selection_full_reason" ] && [ "$zekini_pushed_ref" = "$protected" ]; then
+        zekini_selection_full_reason="this push is to ${protected}"
+      fi
+    done
+    if [ -z "$zekini_selection_full_reason" ] && [ "${#branch_shas[@]}" -eq 0 ]; then
+      zekini_selection_full_reason="no pushed branch to diff (a direct run of the hook)"
+    fi
+    if [ -z "$zekini_selection_full_reason" ] && [ "$zekini_changed_paths_known" -ne 1 ]; then
+      zekini_selection_full_reason="the pushed range could not be diffed (no fetch of ${protected}, or no merge-base)"
+    fi
+    if [ "${ZEKINI_STAGE_PLAN_SELECTOR:-}" != 1 ]; then
+      echo "⚠ pre-push: ZEKINI_TEST_SELECTOR is set, but .githooks/lib/test-stages.sh predates it (ZST-891) — running the full backend suite. Re-sync both files from standards together." >&2
+    else
+      zekini_selected_groups="$(zekini_test_selection "$ZEKINI_TEST_SELECTOR" "$(printf '%s\n' "$zekini_changed_paths" | grep . | sort -u)" "$zekini_selection_full_reason" tests)"
+    fi
+  fi
+
+  # ── Staged: unit → feature, each stopping at its first failure (ZST-295) ──
+  #
+  # The plan — which `php artisan test` calls, in what order, with which
+  # --testsuite/--exclude-group arguments — comes from lib/test-stages.sh, a
+  # pure function with its own fixture (snippets/test-stages.test.sh), because
+  # this exact section has the file's densest history of bugs found only in
+  # review (SIGPIPE under pipefail, browser-group double-counting, the
+  # ZST-217/249/284 frontend-pattern saga). Every rule is documented there;
+  # in short: a repo with a Unit/Feature testsuite split runs two stages,
+  # anything else runs the single flat call it always did, and the browser
+  # group is excluded from the backend stages only when the dedicated step
+  # below is really going to run it (the same two detectors as before, so the
+  # two decisions can never disagree — ZST-242).
+  #
+  # `fail` exits on the spot, so a failing unit stage never pays for the
+  # feature stage: the stage list is the gate's order, not a report.
+  #
+  # Stopping inside each stage is what makes a stage a verdict instead of a
+  # report (the STAGE epic's decision). BOTH `--stop-on-failure` AND
+  # `--stop-on-error` — caught in review: PHPUnit counts an uncaught
+  # exception, a fatal or a DB error as an ERROR, and `--stop-on-failure`
+  # alone compares only the FAILURE count (Runner/TestResult/Facade.php), so
+  # the most common breakage would have run the stage to the end while the
+  # message claimed it stopped. The pair is exactly what Pest's own `--bail`
+  # expands to (src/Plugins/Bail.php). Not `--stop-on-defect`: that also
+  # stops on a warning or a risky test, which is a report-level nit, not a
+  # verdict. Per WORKER under --parallel — paratest forwards both into every
+  # worker's own PHPUnit process (ZST-293, src/Options.php) — so up to N
+  # stops surface, never promised as "one". ZEKINI_STOP_ON_FAILURE=false
+  # restores the full run for debugging. Each separate invocation pays the
+  # bootstrap again — measured on pulse at adoption (docs/
+  # pre-push-performance.md, "staged gate"): below run-to-run noise.
+  zekini_stop_on_failure_flag="--stop-on-failure --stop-on-error"
+  zekini_stop_on_failure_note=" (stopped at the first failure or error per worker — ZEKINI_STOP_ON_FAILURE=false runs the stage to the end)"
+  case "${ZEKINI_STOP_ON_FAILURE:-}" in
+    0 | false | FALSE | False | no | off)
+      zekini_stop_on_failure_flag=""
+      zekini_stop_on_failure_note=""
+      ;;
+  esac
+
+  zekini_browser_dedicated=0
+  if [ -n "$browser_exclude" ]; then
+    zekini_browser_dedicated=1
+  fi
+  zekini_has_browser_flag=0
+  if zekini_has_browser_tests_memo; then
+    zekini_has_browser_flag=1
+  fi
+
+  # ZST-414: groups the repo has proven parallel-UNSAFE (`.githooks/config`,
+  # ZEKINI_PARALLEL_TEST_EXCLUDE_GROUPS) leave the parallel run and get one
+  # serial stage of their own (lib/test-stages.sh rule 6). Handed over only when
+  # the run really is parallel — $test_args is empty when the switch is off or
+  # paratest is missing — because a serial run has nothing to keep them out of.
+  # A lib synced out of order would ignore that argument and race the very tests
+  # it was told to isolate, and would not even have the function the loop below
+  # builds every command with, so the capability marker is checked, not assumed —
+  # for every repo, because the loop needs the function whether or not the groups
+  # are set.
+  [ "${ZEKINI_STAGE_PLAN_SERIAL_GROUPS:-}" = 1 ] || fail ".githooks/lib/test-stages.sh predates this hook (ZST-414: parallel-unsafe groups, zekini_stage_command) — re-sync both files from standards together"
+  zekini_serial_groups=""
+  if [ -n "$test_args" ]; then
+    zekini_serial_groups="${ZEKINI_PARALLEL_TEST_EXCLUDE_GROUPS:-}"
+  fi
+  # A valid-looking name that no test carries (a misspelling) excludes nothing
+  # and leaves the [serial] stage selecting no tests: loud, not a silent no-op.
+  if [ -n "$zekini_serial_groups" ]; then
+    while IFS= read -r zekini_unknown_group; do
+      [ -n "$zekini_unknown_group" ] || continue
+      echo "⚠ ZEKINI_PARALLEL_TEST_EXCLUDE_GROUPS names '${zekini_unknown_group}', but nothing under tests/ tags a test with that group — a misspelling? It excludes nothing, so the tests you meant to isolate still run in parallel." >&2
+    done < <(zekini_groups_without_tests "$zekini_serial_groups" tests)
+  fi
+  zekini_stage_plan_out="$(zekini_stage_plan "${ZEKINI_TEST_STAGES:-}" "$(zekini_testsuite_names)" "$zekini_has_browser_flag" "$zekini_browser_dedicated" "$zekini_serial_groups" "${zekini_selected_groups:-}")"
+
+  # ⚠️ Caught in review: an EMPTY plan must be a failure, never "no stages,
+  # nothing to run, push passes". The `|| exit 1` on the source line proves
+  # the lib FILE exists, not that its functions do — a stale or truncated
+  # copy (a two-file sync landed out of order) sources cleanly, the
+  # substitution above yields "" at status 127 under `set -uo pipefail`
+  # (no -e), and the loop below would run zero stages and let the push
+  # through with no backend tests at all.
+  [ -n "$zekini_stage_plan_out" ] || fail "backend stage plan is empty — .githooks/lib/test-stages.sh is stale or truncated (re-sync it from standards)"
+
+  # ⚠️ Into an array FIRST, never `while read … done <<< "$plan"` around
+  # sail_run: `docker compose exec -T` (what sail_run is) inherits the loop's
+  # stdin and drains the here-string, so the read after the first stage sees
+  # EOF and the feature stage silently never runs — a gate that passes while
+  # skipping most of the suite, the worst shape this file knows.
+  mapfile -t zekini_stage_lines <<< "$zekini_stage_plan_out"
+
+  for zekini_stage_line in "${zekini_stage_lines[@]}"; do
+    [ -n "$zekini_stage_line" ] || continue
+    zekini_stage_label="${zekini_stage_line%%|*}"
+    zekini_stage_args="${zekini_stage_line#*|}"
+    # The runner and its arguments come from lib/test-stages.sh, where a fixture
+    # can pin them (ZST-414, found in review: this used to be three inline
+    # branches nothing could run). The `serial` stage — the parallel-unsafe
+    # groups, on their own — never gets --parallel and never bin/parallel-suite,
+    # which always adds it; it runs against the single default `testing`
+    # database, not the sharded ones that wrapper's lock protects.
+    zekini_has_parallel_suite=0
+    if [ -f bin/parallel-suite ]; then
+      zekini_has_parallel_suite=1
+    fi
+    mapfile -t backend_cmd < <(zekini_stage_command "$zekini_stage_label" "$zekini_stage_args" "$test_args" "$zekini_has_parallel_suite" "$zekini_stop_on_failure_flag")
+    # An empty command must never reach sail_run: a lib without the function
+    # yields nothing here, and `sail_run` with no arguments is not "no tests".
+    [ "${#backend_cmd[@]}" -gt 0 ] || fail "no command built for the [${zekini_stage_label}] stage — .githooks/lib/test-stages.sh is stale (re-sync it from standards)"
+    echo "▶ pre-push: [${zekini_stage_label}] ${backend_cmd[*]}…"
+    zekini_run_backend_suite "$zekini_stage_label" "${backend_cmd[@]}"
+  done
+
+  # Every stage above passed (`fail` exits on the first red one). Recorded
+  # after the loop, not inside it, so the loop stays the self-contained region
+  # snippets/pre-push-stage-loop.test.sh runs. Where the backend carried the
+  # browser group unfiltered, those stages ran it too.
+  for zekini_stage_line in "${zekini_stage_lines[@]}"; do
+    [ -n "$zekini_stage_line" ] || continue
+    zekini_green_ran "${zekini_stage_line%%|*}"
+  done
+  # ZST-891: the selector's groups passed, not the backend suite.
+  if [ -n "${zekini_selected_groups:-}" ]; then
+    zekini_green_skip backend
+  fi
+  if [ "$backend_carries_browser" -eq 1 ]; then
+    zekini_green_ran browser
+  fi
+fi
+
+# ── Frontend: only if a web/ SPA is present ───────────────────────────────────
+if [ -f web/package.json ] && [ "$zekini_run_frontend" -eq 0 ]; then
+  echo "⏩ pre-push: skipping frontend lanes (typecheck, build, coverage, browser tests) — ${zekini_skip_frontend_reason}." >&2
+  echo "  Force them anyway with ZEKINI_FULL_GATE=true." >&2
+  zekini_green_skip frontend
+elif [ -f web/package.json ]; then
+  # ── How web/ is invoked: detected, not assumed ──────────────────────────────
+  #
+  # This hook adapts to a repo's SHAPE, not only to its contents. Detecting that
+  # web/package.json exists and then hard-coding ONE way of invoking it is the
+  # same defect as not detecting at all — it just fails later and less honestly.
+  #
+  # Two shapes exist in the fleet:
+  #
+  #   * web/ is an npm WORKSPACE of the root package (kadro, voc) — the root
+  #     install hoists it, and `npm run <script> --workspace web` is correct.
+  #     ⚠ `--prefix web` here IS a bug: it resolves outside the hoisted root
+  #     tree and leaves a stray second lockfile plus a duplicate dependency
+  #     tree. That rule still stands — it is just scoped to where it is true.
+  #
+  #   * web/ installs STANDALONE (loupe) with its own node_modules. There is no
+  #     hoisted root tree to resolve outside of, so the warning above does not
+  #     apply and `--workspace web` errors outright: not a workspace root.
+  #
+  # Read from the root package.json rather than guessed, so a repo changing
+  # shape changes the invocation without anyone editing this file.
+  web_is_workspace=0
+  if [ -f package.json ] && grep -Eq '"workspaces"[[:space:]]*:' package.json; then
+    web_is_workspace=1
+  fi
+
+  # Run an npm script that lives in web/package.json, whichever shape this is.
+  web_npm_run() {
+    if [ "$web_is_workspace" = "1" ]; then
+      sail_run npm run "$1" --workspace web
+    else
+      sail_run npm --prefix web run "$1"
+    fi
+  }
+
+  # Hard gate, and the ONLY place tsc should run. `tsc` type-checks test files
+  # too, so a deploy build of `tsc && vite build` fails the PRODUCTION build on a
+  # type error in a .test.tsx that never ships. Keep the deploy build to vite
+  # alone and put the type gate here, where a failure costs a retry rather than a
+  # broken release. Vitest does not cover this: it transpiles without
+  # type-checking, so a broken file tests green.
+  echo "▶ pre-push: web typecheck…"
+  web_npm_run typecheck || fail "web typecheck"
+
+  # Hard gate. Runs the real production build — the same command the deploy runs.
+  #
+  # On a workspace repo that is the ROOT build, because the root script is what
+  # chains the web build and the shell placement together; running web's own
+  # build would skip the chaining and assert against a shell nothing produced.
+  # On a standalone repo the root build is a full clean install on every push,
+  # so build web/ directly.
+  echo "▶ pre-push: web production build…"
+  if [ "$web_is_workspace" = "1" ]; then
+    sail_run npm run build || fail "web build"
+  else
+    web_npm_run build || fail "web build"
+  fi
+
+  # SPA shell convention: the built shell is placed OUTSIDE public/ and served
+  # through a controller, so it gets the bootstrap (token, version,
+  # broadcasting). Only assert it where the repo actually does this.
+  if [ -f web/scripts/place-shell.mjs ]; then
+    if [ ! -f resources/spa/index.html ]; then
+      echo "✗ resources/spa/index.html was not produced by 'npm run build'." >&2
+      echo "  The web/ SPA build is not chained into the root build (see package.json)," >&2
+      echo "  or web/scripts/place-shell.mjs did not run." >&2
+      echo "  Prod would serve an empty <div id=\"root\"></div> shell — a blank dashboard." >&2
+      exit 1
+    fi
+
+    if ! grep -q '/spa/assets/index-.*\.js' resources/spa/index.html; then
+      echo "✗ resources/spa/index.html has no hashed /spa/assets bundle — it's a fallback shell." >&2
+      exit 1
+    fi
+
+    # The shell must NOT be publicly reachable: a file in public/ is served by
+    # the web server before the framework runs, so a shell there ships with no
+    # bootstrap at all.
+    if [ -e public/app ] || [ -f public/spa/index.html ]; then
+      echo "✗ An SPA shell is publicly reachable (public/app or public/spa/index.html)." >&2
+      echo "  It would be served straight off disk, bypassing the controller and its bootstrap." >&2
+      exit 1
+    fi
+  fi
+
+  echo "▶ pre-push: web test:coverage…"
+  # ⚠️ Captured rather than streamed raw, found 2026-08-31 (whatsapp): where
+  # `test:coverage` is the ONLY place frontend tests run (true whenever the
+  # repo has no separate `test` script), a genuinely FAILING TEST and a merely
+  # missed coverage THRESHOLD both exit non-zero, and ZEKINI_COVERAGE_ADVISORY
+  # was swallowing both identically — turning "coverage is a known debt" into
+  # "the whole frontend suite is optional" for any repo shaped that way. A
+  # real test failure always blocks, advisory or not; only a pure
+  # threshold miss is ever advisory.
+  # ⚠️ KNOWN GAP, flagged 2026-08-31 (voc): this couples correctness to
+  # vitest/jest's CURRENT reporter wording, not to anything the runner
+  # guarantees. A reporter change, a switched test runner, or even a
+  # differently-phrased single-failure line ("1 test failed", no leading
+  # "Tests") could produce output neither pattern matches — and the one
+  # place that actually depends on catching it (ZEKINI_COVERAGE_ADVISORY set)
+  # would silently treat a real test failure as an advisory coverage miss,
+  # which is the exact bug this whole capture-instead-of-stream mechanism
+  # exists to close. No concrete repro of a real miss; not fixed here for the
+  # same reason the ERE-based checks elsewhere in this file document their
+  # gaps rather than guess at a fix — a more robust signal (a JSON reporter,
+  # an explicit exit-code split between "tests failed" and "coverage only")
+  # needs verifying against a real run of whatever the fleet's web/ repos
+  # actually use, not assumed blind.
+  # ⚠️ Caught in review (ZST-214): `mktemp` itself can fail (TMPDIR full or
+  # unwritable) — unguarded, `coverage_log` would then be empty, `tee ""`
+  # fails to open output, and under `pipefail` a PASSING test run reports as
+  # a failed push. Refusing loudly here is cheap and the failure is
+  # unambiguous, unlike guessing at what an empty log path might mean later.
+  # `fail()` appends " failed." itself — a message ending in "failed" here
+  # would double up into "...check TMPDIR) failed." (caught in review).
+  coverage_log="$(mktemp)" || fail "creating a temp file for web test:coverage output (mktemp — check TMPDIR)"
+  if ! web_npm_run test:coverage 2>&1 | tee "$coverage_log"; then
+    if grep -qE '(^| )FAIL( |$)' "$coverage_log" || grep -qE 'Tests[[:space:]]+[0-9]+[[:space:]]+failed' "$coverage_log"; then
+      rm -f "$coverage_log"
+      fail "web tests — a test failed, not just the coverage threshold (ZEKINI_COVERAGE_ADVISORY does not cover this)"
+    fi
+    case "${ZEKINI_COVERAGE_ADVISORY:-}" in
+      1 | true | TRUE | True | yes | on)
+        # Advisory only where the repo-wide threshold is currently unsatisfiable.
+        # A hard gate nobody can pass is worse than none: it fails every push and
+        # moves the whole team onto --no-verify, which silently discards the
+        # typecheck and build gates above too. Report it; restore the hard gate
+        # when the coverage debt lands.
+        echo "⚠ web coverage is below threshold — not blocking (ZEKINI_COVERAGE_ADVISORY is set)." >&2
+        ;;
+      *)
+        rm -f "$coverage_log"
+        fail "web coverage"
+        ;;
+    esac
+  fi
+  rm -f "$coverage_log"
+
+  # The only thing anywhere that loads the built bundle in a real browser. Feature
+  # tests call the router directly and never load the SPA, and phpunit.xml
+  # excludes `group: browser` from the default run (correct — it needs Chromium),
+  # so without this nothing exercises it at all. Where that was the case, browser
+  # tests rotted into failure unnoticed and a shell with no bootstrap reached
+  # production.
+  #
+  # Runs AFTER the build above, because write-flow specs need the shell that
+  # build produces; run before it, they skip themselves and prove nothing.
+  #
+  # Governed by the same SKIP_SLOW_TESTS switch as the backend suite, so heavy
+  # local iteration has one escape hatch rather than two. Move this to CI when
+  # Actions come back; a per-push cost is the stopgap, not the goal.
+  #
+  # ZEKINI_BROWSER_IN_PREPUSH=false lets a repo declare that its browser coverage
+  # runs in `bin/eod` instead of on every push. It DEFAULTS ON, so adopting this
+  # file never silently drops a gate a repo already passes — same principle as
+  # ZEKINI_COVERAGE_ADVISORY.
+  #
+  # ⚠ It COMPOSES with the "does this repo have browser tests" guard, never
+  # replaces it. The gate is "the repo has browser tests AND wants them here".
+  # Collapsing the two would mean a repo that does want them here silently losing
+  # them the moment the switch was misread — and browser tests are the only thing
+  # anywhere that loads the built bundle, so their absence is invisible until
+  # production is blank.
+  #
+  # ⚠ The guard used to be `[ -d tests/Browser ]` alone, and in kadro that
+  # directory is the gitignored place Pest's browser plugin WRITES ITS
+  # SCREENSHOTS — the specs live in tests/Feature/Browser. It passed for a reason
+  # unrelated to what it was checking, and would have flipped to a silent NO the
+  # first time a fresh clone, a `git clean` or a container rebuild removed an
+  # empty directory nobody knew mattered. A gate that stops existing, with no
+  # warning and no failure (KAD-1376).
+  zekini_green_ran frontend
+
+  if zekini_has_browser_tests_memo && zekini_browser_in_prepush; then
+    if zekini_slow_skipped; then
+      echo "⏩ SKIP_SLOW_TESTS is on — SKIPPING the browser tests." >&2
+    else
+      # ZST-199: reaps the stray server the backend suite above just leaked
+      # (pest-plugin-browser's method filter, not this repo's own tests) —
+      # see the first call's own comment for why one reap at the top of the
+      # hook isn't enough.
+      zekini_reap_test_orphans
+      # ⚠️ ZST-213 (Mail, MAI-89): a wedged pest-plugin-browser startup has no
+      # output, no crash, a live chrome-headless-shell tree, and a process
+      # that never returns — an unbounded push hangs a terminal indefinitely
+      # instead of failing loudly. `timeout` here runs INSIDE the container
+      # (sail_run already wraps everything in `bash -c`, so this becomes part
+      # of that same command line) — it enforces the deadline on the actual
+      # wedged process, not just the host-side `docker compose exec` client,
+      # which would leave the real process orphaned in the container for
+      # `zekini_reap_test_orphans` to find on some LATER run instead of this
+      # one. `--kill-after` matters: a wedged Playwright tree has been
+      # observed ignoring plain TERM.
+      echo "▶ pre-push: php artisan test --group=browser (timeout ${BROWSER_TIMEOUT_SECONDS:-120}s)…"
+      # Same machine-wide queue as the backend stages above (ZST-258/332) —
+      # a real browser run is exactly the kind of CPU/memory-heavy work the
+      # queue exists to serialize, and this step runs in every repo whether
+      # or not it split its backend suite into stages.
+      zekini_test_lock_run sail_run timeout --signal=TERM --kill-after=10 "${BROWSER_TIMEOUT_SECONDS:-120}" \
+        php artisan test --group=browser
+      browser_status=$?
+      if [ "$browser_status" -eq 124 ]; then
+        fail "browser tests — killed after ${BROWSER_TIMEOUT_SECONDS:-120}s. This is a WEDGE, not a failing assertion: expect a live chrome-headless-shell tree and no test output. Override the ceiling with BROWSER_TIMEOUT_SECONDS if a slow box genuinely needs more time."
+      elif [ "$browser_status" -ne 0 ]; then
+        fail "browser tests"
+      fi
+      zekini_green_ran browser
+    fi
+  fi
+fi
+
+# ── Release tag: is the version PRODUCTION is serving tagged? ─────────────────
+#
+# The versioning spec names four surfaces that must agree, and three of them read
+# config('app.version') and cannot disagree. The fourth — the git tag — is a
+# habit, and it is the one that has lapsed in every repo that has one: loupe
+# twice (v0.5.0→v0.54.0, then TWELVE releases from v0.62.0), kadro the same way.
+#
+# The earlier guard asked `--check`: does THIS CHECKOUT's VERSION have a tag? That
+# is correctly silent off the release branch, which is exactly why it said nothing
+# during the twelve pushes that made up the second lapse. `--deployed` asks about
+# production instead, so it is answerable from any branch and can run on every
+# push — and it is the stronger question, because main and production routinely
+# disagree.
+#
+# NEVER blocks. An untagged release is worth interrupting for, not worth refusing
+# a push over, and a gate that fails because the site was briefly unreachable
+# teaches people to reach for --no-verify, which discards every check above.
+#
+# ⚠ --url is not optional. Run through Sail, the public-surface config is unset
+# and app.url is localhost, so without it this asks the DEV CONTAINER what it is
+# serving and reports "nothing to check" on every push — a guard that passes
+# while proving nothing, which is the shape of the bug it exists to catch. So the
+# URL is repo policy (committed .githooks/config) and an unset one is LOUD:
+# adopting this file and quietly checking nothing is the failure mode, not a
+# missing tag.
+if [ -f app/Console/Commands/ReleaseTag.php ]; then
+  if [ -n "${ZEKINI_PROD_URL:-}" ]; then
+    echo "▶ pre-push: release tag (deployed)…"
+    sail_run php artisan release:tag --deployed --url="$ZEKINI_PROD_URL" || true
+  else
+    echo "⚠ release:tag exists but ZEKINI_PROD_URL is unset — the deployed-tag guard did NOT run." >&2
+    echo "  Set it in .githooks/config (the production origin, e.g. https://example.co.za)." >&2
+  fi
+
+  # ── Release tag: history ratchet ──────────────────────────────────────────
+  #
+  # Promoted from loupe 2026-08-31 (ZST-127, its card 400). `--deployed` above
+  # asks about ONE version — whatever production is serving right now. A fast
+  # release train leapfrogs it: several versions can ship in quick succession
+  # and by the next push production has moved past all of them, so the missing
+  # tags are invisible until someone backfills them by hand (loupe's card 389;
+  # kadro has the same exposure, tracked separately as ZST-172).
+  #
+  # `--history` asks about EVERY version that has ever been on the release
+  # branch, so a miss is caught on the very next push regardless of what prod
+  # serves. Git-only, no network — cheap to run every time a repo has it.
+  #
+  # Same `|| true` as above: an untagged release is worth interrupting for, not
+  # worth refusing a push over.
+  #
+  # ⚠️ Caught in review (ZST-214) THREE times running, each fix to the PHP
+  # source-text parsing finding a new way to be wrong: a bare grep for the
+  # flag text anywhere in the file matched a stray comment; anchoring to the
+  # `$signature` line broke on Laravel's common multi-line signature style;
+  # an `awk` range from `$signature` to the next `;` broke on a TYPED
+  # property (`protected string $signature = ...`, which never matches the
+  # literal `protected $signature` the range opens on) AND on an earlier
+  # option's own description text containing a semicolon (which closes the
+  # range before ever reaching `--history`). Every one of those regressions
+  # would have been silent — masked by the `|| true` below.
+  #
+  # Asking the command itself what it supports, instead of pattern-matching
+  # how its PHP source happens to be written, eliminates the whole class:
+  # this reflects the real, fully-resolved option list regardless of typed
+  # properties, string concatenation, heredocs, or a `getSignature()`
+  # override. `sail` is already known to exist and work by this point in the
+  # script (every gate above this one already ran through it).
+  # ⚠️ Caught in review (ZST-252, mail): this new form has its own silent-skip
+  # surface, just moved — under `pipefail`, a genuine failure of the
+  # `sail_run` container round trip (container down, a docker hiccup, a
+  # Laravel boot error) produced empty stdout, indistinguishable from
+  # "command ran and genuinely lacks --history". Capture the help output and
+  # ITS OWN exit status separately, so a container failure is a visible
+  # warning, not a silent no-op that looks identical to "this repo's
+  # release:tag doesn't support --history".
+  help_output="$(sail_run php artisan release:tag --help 2>/dev/null)"
+  help_status=$?
+  if [ "$help_status" -ne 0 ]; then
+    echo "  ⚠ pre-push: 'release:tag --help' failed (status $help_status) — could not tell whether --history is supported, so the history ratchet did NOT run this push. This is a container/boot problem, not this repo lacking the flag."
+  elif printf '%s' "$help_output" | grep -q -- '--history'; then
+    echo "▶ pre-push: release tag (history ratchet)…"
+    # ZST-447 (found by Accounting): on an UNMERGED feature branch, the
+    # branch's own VERSION bump came back as "vX shipped (commit Y) but was
+    # never tagged." — nothing has shipped, and it read like a failure. Every
+    # branch reaching this line is a non-default one (a direct push to
+    # ${protected} is refused at the top of this file), so the command's own
+    # wording is rewritten here, per line, for a commit that is not yet on
+    # ${protected}. A commit that IS on ${protected} keeps the original line:
+    # that one really did ship untagged. Ancestry is read against the local
+    # tracking ref — advisory only, so a stale ref costs a reworded line at
+    # worst, never a block. The command's output is a line per version in
+    # every repo's own release:tag, so a line that does not match passes
+    # through unchanged — as does every line when the tracking ref has never
+    # been fetched (no way to tell, so the command's own wording stands).
+    zekini_history_base=""
+    git rev-parse --quiet --verify "${remote}/${protected}^{commit}" >/dev/null 2>&1 \
+      && zekini_history_base="${remote}/${protected}"
+    zekini_history_re='^(.*)(v[0-9][^ ]*) shipped \(commit ([0-9a-fA-F]{7,64})\) but was never tagged\.?(.*)$'
+    # The whole output is read up front, then rewritten: nothing in the loop
+    # body shares a stdin with the command's output, so no line can be lost
+    # to it. The `|| true` is the advisory contract above, not a missed check.
+    mapfile -t zekini_history_lines < <(sail_run php artisan release:tag --history 2>&1 </dev/null || true)
+    for zekini_history_line in "${zekini_history_lines[@]}"; do
+      if [ -n "$zekini_history_base" ] \
+        && [[ "$zekini_history_line" =~ $zekini_history_re ]] \
+        && ! git merge-base --is-ancestor "${BASH_REMATCH[3]}" "$zekini_history_base" </dev/null 2>/dev/null; then
+        echo "${BASH_REMATCH[1]}${BASH_REMATCH[2]} is bumped on this unmerged branch (commit ${BASH_REMATCH[3]}) — not shipped yet, so no tag is due; it is tagged once it merges to ${protected}.${BASH_REMATCH[4]}"
+      else
+        printf '%s\n' "$zekini_history_line"
+      fi
+    done
+  fi
+fi
+
+# ── Is bin/eod actually running? ──────────────────────────────────────────────
+#
+# Promoted from loupe 2026-08-18 (ZST-133, its card 467). `bin/eod` is the only
+# thing that runs the browser suite, the dependency audit, the deployed-version
+# check, `hook-drift.sh` and `orphan-check.sh` — every one a SILENT failure by
+# nature, which is precisely why none of them belongs in this hook.
+#
+# Its reporting was built and correct, and it still went unrun for ~20 merges in
+# loupe because nothing scheduled it and nobody remembered; five red browser
+# tests were found by accident on an unrelated card. A cron entry then fixed
+# that — and a cron job that silently stops firing (machine asleep at the hour,
+# WSL down, crontab wiped) is the same defect one level down, so its absence has
+# to be visible somewhere a human already is. Push time is that place.
+#
+# ⚠️ Advisory, NEVER blocking — same contract as the release-tag guards above and
+# for the same reason: a stale heartbeat is worth interrupting for, not worth
+# refusing a push over. `bin/eod` stamps the file on every COMPLETED run.
+#
+# No-ops where the repo has no runner, which today is voc (ZST-118).
+if [ -f bin/eod ]; then
+  eod_heartbeat="storage/logs/eod-heartbeat"
+  if [ ! -f "$eod_heartbeat" ]; then
+    echo "⚠ bin/eod has never completed a run on this clone (no $eod_heartbeat)." >&2
+    echo "  The browser suite, the dependency audit and the deploy checks only run there." >&2
+    echo "  Run: bin/eod — and check the nightly cron entry exists (crontab -l)." >&2
+  elif [ -n "$(find "$eod_heartbeat" -mtime +3 2>/dev/null)" ]; then
+    echo "⚠ bin/eod has not completed a run in over 3 days ($(head -c 60 "$eod_heartbeat"))." >&2
+    echo "  Its checks — browser suite, dependency audit, deployed version — are all dark." >&2
+    echo "  Run: bin/eod — and check the nightly cron entry still exists (crontab -l)." >&2
+  fi
+fi
+
+# ── Repo-local gates: .githooks/pre-push.local (ZST-317) ──────────────────────
+#
+# THE one fleet-wide mechanism for a gate that is meaningful to exactly one
+# repo and so can never go upstream into this template — decided 2026-09-07
+# (option A), raised by loupe's LOU-814: its nested-SPA build guard
+# (`resources/spa/index.html` must exist and reference a hashed bundle;
+# `public/index.html`/`public/app`/`public/spa/index.html` must not be
+# publicly reachable) is meaningless to a flat Laravel repo, but
+# hook-drift.sh demands this file stay byte-identical to the template, so
+# the two requirements were in direct conflict with no resolution possible
+# from the repo's side. Mail, kadro and whatsapp hit the same wall the
+# moment they carry a gate standards doesn't.
+#
+# Chosen over a magic `zekini_repo_gates()` function name (less
+# discoverable, a typo silently defines nothing) and over hook-drift.sh
+# ignoring an append region (weakens drift detection generally — ANY edit
+# could hide there, not just the intended gate). hook-drift.sh keeps
+# checking THIS file byte-identical; `.githooks/pre-push.local` is
+# repo-owned, committed alongside it, and deliberately not in hook-drift's
+# FILES array.
+#
+# The contract: sourced HERE, last — after every fleet gate above has
+# passed, inside the same locked process, with every variable and helper
+# this file defines in scope (`$sail`, `$protected`, `zekini_is_hotfix`,
+# the `.githooks/config` switches). A local gate blocks the push the same
+# way a fleet gate does: `exit 1` (or any non-zero return from the file's
+# last command). Absent means nothing — the common case for most repos.
+if [ -f .githooks/pre-push.local ]; then
+  echo "▶ repo-local gates (.githooks/pre-push.local)…"
+  # shellcheck disable=SC1091
+  . .githooks/pre-push.local || exit 1
+  zekini_green_ran local
+fi
+
+zekini_green_write
+
+echo "✓ pre-push: full suite passed"

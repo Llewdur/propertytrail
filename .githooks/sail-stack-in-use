@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# Canonical Zekini helper (from zekini-com/standards) — answers one question:
+#
+#   "Is any OTHER live Claude Code session using this repo's Sail stack?"
+#
+# Several sessions routinely run against the same repo (and against git
+# worktrees under it, which share the parent checkout's stack). Stopping the
+# containers when one of them exits kills the containers out from under the
+# others — mid-suite, mid-migration. So both the SessionEnd hook and the
+# /zekini-down skill ask this first.
+#
+# Sessions are identified by live `claude` processes whose cwd resolves to the
+# same git repository (`--git-common-dir`, so worktrees fold onto their parent).
+# The ending session's own process chain is excluded via the ancestry of this
+# script.
+#
+# Output: one `pid <n>  <cwd>` line per other session, on stdout.
+# Exit 0  = at least one other session shares this stack -> do NOT stop.
+# Exit 1  = nobody else -> safe to stop.
+#
+# Bias: when anything is unknowable (unreadable /proc, no pgrep), report "in
+# use". Leaving containers running costs RAM; stopping them costs someone's
+# work.
+
+set -uo pipefail
+
+# Identity of the Sail stack a directory belongs to: the repo's common git dir
+# (shared by every worktree), falling back to the physical path.
+stack_key() {
+  local dir="$1" key=''
+
+  if [ -d "$dir" ]; then
+    key="$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || key=''
+    [ -n "$key" ] || key="$(cd "$dir" 2>/dev/null && pwd -P)" || key=''
+  fi
+
+  printf '%s' "$key"
+}
+
+mine="$(stack_key "${CLAUDE_PROJECT_DIR:-$PWD}")"
+
+# Can't identify our own stack — don't claim the coast is clear.
+[ -n "$mine" ] || exit 0
+
+command -v pgrep >/dev/null 2>&1 || exit 0
+
+# Every ancestor of this script belongs to the session that is ending — UP TO
+# AND INCLUDING the nearest ancestor that is itself a `claude` process
+# (ZST-383). That nearest `claude` PID IS the ending session — but climbing
+# PAST it walks into that session's OWN ancestry, which can include an outer,
+# still-live `claude` session that merely happens to also be an ancestor of
+# this call (e.g. an interactive session's Bash tool ran `git push`, whose
+# pre-push hook backgrounded a headless `claude -p` review; that review's own
+# SessionEnd must not treat the interactive session that launched it as
+# "itself"). Found in KAD-1987: the old unconditional climb to PID 1 excluded
+# that outer session from `pgrep -x claude`'s candidates too, so its still-running
+# test suite looked like "nobody else is using this stack" and got stopped
+# mid-run — every non-hotfix push, since every push backgrounds this same
+# review. Regression test: sail-stack-in-use.test.sh.
+declare -A ancestors=()
+pid=$$
+while [ "${pid:-0}" -gt 1 ] 2>/dev/null; do
+  ancestors["$pid"]=1
+  comm="$(cat "/proc/$pid/comm" 2>/dev/null)" || comm=''
+  [ "$comm" = "claude" ] && break
+  pid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status" 2>/dev/null)" || break
+done
+
+others=0
+for candidate in $(pgrep -x claude 2>/dev/null); do
+  [ -n "${ancestors[$candidate]:-}" ] && continue
+
+  cwd="$(readlink "/proc/$candidate/cwd" 2>/dev/null)" || continue
+  [ -n "$cwd" ] || continue
+  [ "$(stack_key "$cwd")" = "$mine" ] || continue
+
+  others=$((others + 1))
+  printf 'pid %s  %s\n' "$candidate" "$cwd"
+done
+
+[ "$others" -gt 0 ]

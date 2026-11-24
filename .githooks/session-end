@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+#
+# Canonical Zekini SessionEnd hook (from zekini-com/standards) — the AUTOMATIC
+# counterpart to the `/zekini-down` skill. When a Claude Code session ends, it
+# stops THIS repo's Sail stack so parallel work across many repos doesn't leave
+# every stack running and eating CPU/RAM.
+#
+# Scope: THIS repo only. `sail stop` derives its compose project from the cwd's
+# docker-compose.yml / COMPOSE_PROJECT_NAME, so it never touches other repos'
+# containers. NEVER use a host-wide command like `docker stop $(docker ps -q)`.
+#
+# Scope: THIS session only. Several sessions (and git worktrees under the repo)
+# routinely share one stack, so the stop is skipped while any other live session
+# is still on it — see the `sail-stack-in-use` helper alongside this file.
+#
+# Install (per machine, once) — copy this to a live location and wire it into
+# ~/.claude/settings.json as a SessionEnd command hook:
+#   mkdir -p ~/.claude/hooks
+#   cp <standards>/templates/hooks/session-end ~/.claude/hooks/session-end
+#   cp <standards>/templates/hooks/sail-stack-in-use ~/.claude/hooks/sail-stack-in-use
+#   chmod +x ~/.claude/hooks/session-end ~/.claude/hooks/sail-stack-in-use
+#   # then add to ~/.claude/settings.json:
+#   #   "hooks": { "SessionEnd": [ { "hooks": [ {
+#   #     "type": "command",
+#   #     "command": "~/.claude/hooks/session-end"
+#   #   } ] } ] }
+#
+# The manual, on-demand version of this is the `/zekini-down` skill.
+
+set -uo pipefail
+
+# Claude Code passes the SessionEnd payload as JSON on stdin. Read it so we can
+# inspect the exit reason.
+input="$(cat 2>/dev/null || true)"
+
+# Don't tear down containers on a mere /clear — the user is still working, just
+# resetting context. Only stop on a real session exit (logout / prompt_input_exit
+# / other).
+if printf '%s' "$input" | grep -qE '"reason"[[:space:]]*:[[:space:]]*"clear"'; then
+  exit 0
+fi
+
+# A headless `claude -p` session never started a stack, so it never stops one
+# (2026-10-27). pre-push backgrounds a `claude -p "/code-review high"` in the
+# repo; when it finished, this hook ran `sail stop` and killed the pusher's
+# suite mid-run. sail-stack-in-use could not see the pusher: a push run from
+# another repo's session, or from a plain terminal, has no `claude` process
+# with this repo as its cwd. The ending session is the nearest `claude`
+# ancestor; when its command line carries -p/--print, leave the stack alone.
+zekini_pid=$$
+while [ "${zekini_pid:-0}" -gt 1 ] 2>/dev/null; do
+  if [ "$(cat "/proc/$zekini_pid/comm" 2>/dev/null)" = "claude" ]; then
+    if tr '\0' '\n' <"/proc/$zekini_pid/cmdline" 2>/dev/null | grep -qxE -- '-p|--print'; then
+      exit 0
+    fi
+    break
+  fi
+  zekini_pid="$(awk '/^PPid:/{print $2}' "/proc/$zekini_pid/status" 2>/dev/null)" || break
+done
+
+sail="./vendor/bin/sail"
+
+# No Sail stack here (non-Laravel repo, or deps not installed) — clean no-op.
+[ -x "$sail" ] || exit 0
+
+# Another session is still working in this repo (or in a worktree under it,
+# which shares the same stack) — leave the containers alone. Stopping them here
+# would kill that session's suite/migration mid-flight. It stops its own stack
+# when it exits last.
+in_use="${BASH_SOURCE%/*}/sail-stack-in-use"
+if [ -x "$in_use" ] && "$in_use" >/dev/null 2>&1; then
+  exit 0
+fi
+
+# Stop (pause) this repo's containers — fast to resume later with `sail up -d`,
+# frees CPU/RAM immediately. Never blocks session end.
+"$sail" stop >/dev/null 2>&1 || true
+
+exit 0

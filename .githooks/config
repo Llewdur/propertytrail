@@ -1,0 +1,10 @@
+# Repo policy for the Zekini git hooks. COMMITTED on purpose: these are decisions about how
+# propertytrail is gated and watched, not personal preferences. Sourced by .githooks/pre-push
+# and read by bin/eod's standards_snippet.
+
+# The production URL is set when the app is first deployed; until then the release-tag
+# guard and offsite monitor have no target and skip their URL checks.
+# ZEKINI_PROD_URL=https://propertytrail.zekini.co.za
+
+# Opt-in domain health probe; unset until the app is live on the shared box.
+# ZEKINI_XNEELO_DOMAIN=propertytrail.zekini.co.za

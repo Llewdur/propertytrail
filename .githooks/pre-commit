@@ -1,0 +1,914 @@
+#!/usr/bin/env bash
+#
+# Canonical Zekini pre-commit hook — identical across every repo.
+# Runs mago format + lint on staged PHP so nothing lands unformatted or linting-
+# dirty. Mirrors the CI gates locally (fail fast, before push).
+#
+# Install (per repo, once):
+#   git config core.hooksPath .githooks
+#   cp <standards>/templates/hooks/pre-commit .githooks/pre-commit
+#   cp <standards>/templates/hooks/lib/sail-tree.sh .githooks/lib/sail-tree.sh
+#   chmod +x .githooks/pre-commit
+#
+# All commands go through Sail to match CI and the rest of the team.
+
+set -euo pipefail
+
+sail="./vendor/bin/sail"
+
+# Shared by the git-add and git-ls-files failure handlers below — both can
+# fire alongside a format_ok=0 (mago crash), and the warning is identical
+# either way. Extracted after review found it duplicated verbatim between the
+# two: a future wording tweak only landing in one copy is exactly the kind of
+# drift this file's other guards exist to prevent elsewhere.
+warn_if_format_also_failed() {
+  if [ "$format_ok" -eq 0 ]; then
+    echo "  ⚠️ mago format ALSO failed above — whatever's on disk for these files"
+    echo "  may be partial content, not your original."
+  fi
+}
+
+# Same reason as warn_if_format_also_failed above — caught duplicated
+# verbatim across the git checkout/add/ls-files/update-index failure
+# handlers in review. $unstaged_patch is a global set earlier in this script.
+reapply_hint() {
+  echo "  Re-apply it by hand:"
+  # $unstaged_patch quoted — caught in review (voc VOC-1210/1213): every
+  # internal git invocation in this file double-quotes it, but this one place
+  # interpolated it bare into echoed text. A TMPDIR containing a space (a
+  # spaced home directory, a corporate profile) split the printed command
+  # into two words the moment someone copy-pasted it, so the one manual-
+  # recovery command this file promises never actually ran as printed.
+  echo "    git apply --whitespace=nowarn --3way \"$unstaged_patch\""
+}
+
+# Caught in review (voc VOC-1210/1213): this exact line was duplicated
+# verbatim in zekini_mktemp_fail's own no-saved_hint branch and the git-diff
+# failure handler further down — same "extract, don't let wording drift"
+# discipline as the two helpers above.
+zekini_nothing_touched_yet() {
+  echo "  Nothing has been touched yet; the working tree and index are unchanged."
+}
+
+# Caught in review (voc VOC-1210/1213): this message (the deliberately-
+# unstaged half is safe at $1, nothing was lost) plus the reapply_hint that
+# always followed it was duplicated 3x — zekini_mktemp_fail's own
+# saved_hint branch, the git-add failure handler, and the git-ls-files
+# failure handler — with wording drift between copies ("was NOT re-applied"
+# vs "has NOT been restored" for the identical guaranteed-safe state).
+# Standardized on "has NOT been restored" (2 of the 3 original copies
+# already agreed on it).
+zekini_unstaged_half_safe_at() {
+  echo "  Your deliberately-unstaged half has NOT been restored — it is still"
+  echo "  saved at: $1"
+  echo "  Nothing was lost."
+  reapply_hint
+}
+
+# Shared by both `mktemp` guards below (caught duplicated in three different
+# shapes in review, ZST-214 — this file's own established practice, per the
+# two helpers above, is to extract exactly this kind of boilerplate rather
+# than let wording drift between copies).
+#
+# ⚠️ Called directly as a plain command, NEVER through `$(...)` — this
+# function's whole job is to `exit 1`, and command substitution runs in a
+# subshell: an `exit` there would only kill the subshell, silently leaving
+# the caller's assignment empty and the script running on with a blank temp
+# path, which is worse than the unguarded bug this exists to fix. Callers
+# use `var="$(mktemp)" || zekini_mktemp_fail ...` — the `mktemp` command
+# substitution can safely run in its own subshell (nothing here needs its
+# exit to propagate further than the assignment itself), but the failure
+# handler must not.
+#
+# $1, when given, is a path already worth pointing back to — the second call
+# site's $unstaged_patch, which by that point holds the user's real
+# deliberately-unstaged edit. Omitted for the first call, where nothing has
+# been saved anywhere yet.
+zekini_mktemp_fail() {
+  local saved_hint="${1:-}"
+  echo ""
+  echo "✗ could not create a temp file (mktemp failed — check TMPDIR) — your commit did NOT run."
+  if [ -n "$saved_hint" ]; then
+    zekini_unstaged_half_safe_at "$saved_hint"
+    warn_if_format_also_failed
+  else
+    zekini_nothing_touched_yet
+  fi
+  echo ""
+  exit 1
+}
+
+# ZST-216: without this, a Ctrl-C (SIGINT) — or SIGTERM/SIGHUP — arriving
+# while the working tree has been reset to index-only content (git checkout
+# below) kills this non-interactive script via bash's default signal
+# handling, before any of the restore logic further down ever runs. The
+# developer's deliberately-unstaged half then exists ONLY in $unstaged_patch,
+# and nothing has printed that filename — the exact failure mode ZST-168
+# introduced this window to protect against, arriving through a signal
+# instead of a normal exit. The longest, most interrupt-prone step inside
+# that window is the `docker compose exec` round trip in mago format.
+#
+# $working_tree_reset tracks whether we are currently inside that window —
+# set to 1 immediately BEFORE `git checkout --` is attempted below (not
+# after it succeeds: that call is non-atomic across multiple paths, so a
+# signal can kill it partway through — arming early means a partial reset
+# still gets a reapply attempt instead of the trap wrongly concluding there
+# is nothing to restore), cleared the moment `git apply` back in the main
+# flow actually succeeds (not only once the rest of that block's index
+# bookkeeping finishes, which would otherwise leave a second window where a
+# signal re-runs `git apply` against content that already has it merged
+# in). The handler removes its own traps as its first action, so a second
+# signal arriving mid-cleanup (e.g. during the `git apply` a few lines down)
+# falls through to bash's default handling instead of re-entering this
+# logic against a half-finished restore.
+#
+# ⚠️ KNOWN, NARROWED GAP (caught in review): arming one statement before the
+# checkout call, rather than after it starts, opens a tiny reverse window —
+# a signal landing after arming but before `git checkout --` has begun means
+# nothing has actually been touched, yet the trap still attempts a reapply.
+# That attempt fails harmlessly (the patch's pre-image no longer matches
+# already-current content) and prints "automatic re-apply failed... saved in
+# full at $unstaged_patch" — a false alarm, not data loss: the file is
+# genuinely untouched and the patch is genuinely intact either way. Choosing
+# which window to leave open is unavoidable with a single boolean and a
+# signal that can land at any instruction boundary; this one was picked
+# because its failure mode is a scary-but-harmless message, versus the
+# alternative (arm only after checkout succeeds) whose failure mode is the
+# trap wrongly saying "nothing to restore" while a partial checkout has
+# genuinely discarded working-tree content. Not fixed further here, same as
+# the file's other documented narrow gaps below.
+#
+# No EXIT trap: every git/mago command in the window already has explicit
+# failure handling (ZST-168's own comments explain why, above), so the only
+# way to fall out of this script uncontrolled is a signal — INT/TERM/HUP/QUIT
+# cover the ones a developer or CI wrapper can plausibly send. Caught in
+# review: SIGPIPE is deliberately NOT trapped — it fires only if this
+# script's own stdout is closed by whatever invoked it, a shape no plain
+# `git commit` produces, and many tools rely on SIGPIPE's default
+# disposition to exit cleanly on a closed pipe; trapping it here for a case
+# this hook doesn't realistically hit isn't worth risking that assumption
+# elsewhere. An EXIT trap would additionally have to tell "restoration
+# already ran, this is a normal exit" apart from "something aborted
+# mid-window", for no case this file can actually still produce.
+working_tree_reset=0
+# Tracks whether `sail_run composer format` (the docker-exec round trip named
+# above) is the thing actually running when a signal lands, as opposed to one
+# of the plain git commands elsewhere in the window. Set 1 immediately before
+# that call, 0 immediately after, regardless of whether it succeeded — mago
+# killed mid-write can leave partial/invalid content in the STAGED file,
+# which re-applying the unstaged half on top does nothing to fix or detect.
+# Caught in review: the handler used to say "Nothing was lost" on a
+# successful re-apply unconditionally, which is only true for the unstaged
+# half — it says nothing about mago's own possibly-partial write. Checked as
+# its own independent paragraph below, NOT nested inside the
+# working_tree_reset branch — mago format runs on every commit regardless of
+# has_unstaged, so a fully-staged commit (no unstaged half at all) can still
+# have mago_running=1 while working_tree_reset stays 0 for the whole script;
+# nesting the caveat inside that branch (as an earlier version of this fix
+# did) silently dropped it for exactly that, the more common, case.
+mago_running=0
+# Tracks whether the MAIN FLOW's own `git apply --3way "$unstaged_patch"`
+# (further down) has already been attempted, regardless of outcome. Without
+# this, a signal landing after that call fails (apply_ok=0, a genuine
+# content conflict) but before the script reaches its own `exit 1` would
+# make the trap re-run the identical apply a second time on top of the
+# first attempt's conflict markers — compounding a conflict the main flow's
+# own, better-explained failure message already covers correctly.
+# Caught in review (ZST-261): `working_tree_reset` is cleared the instant the
+# main flow's own `git apply` SUCCEEDS (further down), because the working
+# TREE is fully restored at that point — but $unstaged_patch itself isn't
+# `rm -f`'d until after the subsequent git ls-files/update-index index
+# bookkeeping finishes. A signal landing in that narrow window sees
+# working_tree_reset=0, takes the "nothing was set aside" branch below, and
+# never prints $unstaged_patch's path — the file leaks in TMPDIR forever,
+# silently, even though the working tree itself is fine. Tracks that
+# specific window: set the instant apply succeeds (alongside clearing
+# working_tree_reset), cleared the instant the file is actually `rm -f`'d.
+unstaged_patch_pending_rm=0
+apply_attempted=0
+zekini_signal_cleanup() {
+  local sig="$1"
+  trap - INT TERM HUP QUIT
+  # Caught in review: `set -euo pipefail` (line 15) is still in effect here.
+  # An unguarded failing command in this handler (rm -f on a full/read-only
+  # TMPDIR, say) would trigger errexit before reaching the `kill -s` call
+  # below, exiting with an ordinary non-zero status instead of dying by
+  # signal — skipping the rest of this recovery messaging in the process.
+  set +e
+  echo ""
+  echo "✗ pre-commit interrupted (SIG$sig) — your commit did NOT run."
+  if [ "$mago_running" -eq 1 ]; then
+    echo "  mago format was still running when this signal arrived — whatever it"
+    echo "  had written to the staged files before being killed may be partial"
+    echo "  content, not valid formatted output. Check 'git status' / 'git diff"
+    echo "  --cached' on them before re-committing."
+  fi
+  if [ "$working_tree_reset" -eq 1 ] && [ -s "${unstaged_patch:-/dev/null}" ]; then
+    if [ "$apply_attempted" -eq 1 ]; then
+      # The main flow's own git apply already ran and conflicted (had it
+      # succeeded, working_tree_reset would already be 0 — see above) —
+      # don't re-run it against markers it may have already left behind.
+      echo "  The unstaged half was already mid-restore when this happened (git"
+      echo "  apply ran and conflicted) — not re-running it. Nothing was lost,"
+      echo "  it is saved in full either way at: $unstaged_patch"
+      echo "  Run 'git status' — resolve any <<<<<<< conflict markers by hand,"
+      echo "  or the apply made no changes at all."
+    else
+      echo "  Your deliberately-unstaged half was set aside before this happened."
+      echo "  It is saved in full at: $unstaged_patch"
+      # ⚠️ Caught in review (mail): printed BEFORE attempting the re-apply
+      # below, not only in the branches after it returns. This handler
+      # already disarmed its own traps (top of this function), so a SECOND
+      # same-type signal arriving exactly during the git apply call a few
+      # lines down hits bash's default disposition and kills the process
+      # immediately — before either outcome message below would ever print.
+      # The file itself was never at risk (it's just sitting on disk
+      # either way), but its location would never have been shown — the
+      # original ZST-168 failure mode (an unprinted recovery path) reachable
+      # again via a double-signal. Printing it here means even a mid-apply
+      # kill has already told the user where their content is.
+      echo "  Attempting to re-apply it now…"
+      # ⚠️ KNOWN, NARROWED GAP (caught in review): the main flow snapshots the
+      # index before ITS OWN `git apply --3way` and restores it after, because
+      # a 3-way merge writes to the index as a side effect even on a clean,
+      # non-conflicting apply (see that snapshot/restore code further down).
+      # This call has the same side effect and does neither — deliberately:
+      # doing so here would mean a signal handler itself creating a temp file
+      # and running a second git command sequence, adding failure surface to
+      # the one place that most needs to stay simple and fast. The tradeoff
+      # is content-safe either way (nothing below is ever lost — CONTENT is
+      # what this card protects), it can just leave the INDEX not exactly
+      # matching the formatted/re-staged snapshot the main flow guarantees.
+      # 'git status' before re-adding, which every other exit path in this
+      # file already tells the user to do, covers it.
+      if git apply --whitespace=nowarn --3way "$unstaged_patch" 2>/dev/null; then
+        echo "  Re-applied successfully. Nothing was lost."
+        rm -f "$unstaged_patch"
+      else
+        echo "  Automatic re-apply failed. Nothing was lost — it is saved in full at:"
+        echo "  $unstaged_patch"
+        reapply_hint
+      fi
+    fi
+  elif [ "$unstaged_patch_pending_rm" -eq 1 ] && [ -s "${unstaged_patch:-/dev/null}" ]; then
+    # The main flow's own apply already succeeded and the working tree is
+    # fully restored — do NOT re-run it, that would apply already-merged
+    # content a second time. Only the index bookkeeping and the final
+    # cleanup rm haven't finished yet; $unstaged_patch is a stale-but-intact
+    # copy of what's already in the tree, worth naming in case the index
+    # restore below this window failed too.
+    echo "  Your unstaged half was already re-applied to the working tree before"
+    echo "  this happened — not re-running it. A copy is still saved at:"
+    echo "  $unstaged_patch"
+    # Caught in review (voc VOC-1210/1213): this is EXACTLY the window
+    # $index_snapshot exists for — the main flow's own `git update-index
+    # --index-info < $index_snapshot` restore (further down) hasn't
+    # necessarily run yet, so the index can be left however apply's 3-way
+    # merge side effect shaped it rather than the clean pre-format snapshot.
+    # Named here for the same reason $unstaged_patch always is: nothing this
+    # file protects should ever be silently leaked in TMPDIR, and this file
+    # holds the exact fix a `git update-index --index-info <
+    # /path/to/snapshot` by hand can apply — deliberately not run
+    # automatically by this handler itself, matching the "keep the signal
+    # path simple" restraint the git-apply side-effect gap above already
+    # accepts, not a new one invented here.
+    if [ -s "${index_snapshot:-/dev/null}" ]; then
+      echo "  The index may not match the pre-format snapshot either — it is saved"
+      echo "  at: $index_snapshot"
+      echo "  Restore it by hand if needed: git update-index --index-info < \"$index_snapshot\""
+    fi
+    echo "  Run 'git status' to check the index matches what you expect."
+  else
+    echo "  Nothing was set aside that needs restoring."
+  fi
+  echo ""
+  kill -s "$sig" "$$"
+}
+trap 'zekini_signal_cleanup INT' INT
+trap 'zekini_signal_cleanup TERM' TERM
+trap 'zekini_signal_cleanup HUP' HUP
+trap 'zekini_signal_cleanup QUIT' QUIT
+
+# Check the tree being committed, not whatever is mounted at /var/www/html.
+# Refuses rather than returning a verdict about another checkout — see
+# lib/sail-tree.sh. Sourced relative to this script, since hooks also run
+# directly, where there is no repository to ask.
+# shellcheck source=.githooks/lib/sail-tree.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/sail-tree.sh"
+
+# Staged PHP files only.
+#
+# ⚠️ Found in review: `-z` on the git side, NUL-delimited on the read side —
+# NOT the default newline-delimited form. With `core.quotePath` at its
+# default (on), a staged path containing non-ASCII or special characters
+# comes back C-quoted from plain `--name-only` (literally `"caf\303\251.php"`
+# as a string) — `git checkout -- "${staged[@]}"` further down then fails on
+# a path that does not exist, and the developer hits the SIGINT/SIGTERM
+# recovery handler above for a reason that has nothing to do with a real
+# interrupt. `-z`/NUL-delimited output is never quoted, at any
+# core.quotePath setting — the correct fix, not a workaround. Verified live
+# in a scratch repo: the old code failed `git checkout` on a real café.php;
+# this reads it correctly.
+#
+# ⚠️ Found in review (second pass): `mapfile -d ''` (used in the first
+# version of this fix, and used by this file's own pre-existing `mapfile -t`
+# calls it replaced — both since converted, see the `added` array below)
+# needs bash >= 4.4 for the `-d` delimiter option. `while read -r -d ''`
+# reads NUL-delimited the same way but has worked since a much older bash,
+# so it doesn't add a floor beyond whatever this file's other constructs
+# already need. (Found in a later review pass: an earlier version of this
+# comment claimed the file's mapfile -t calls set that bash >= 4.0 floor —
+# no longer true once both were converted in this same change; not
+# re-asserting a specific minimum without auditing the rest of the file.)
+# The identical shape is repeated at the `added` array below (same
+# C-quoting exposure) rather than extracted into a shared helper — a helper
+# returning an array needs a nameref (bash >= 4.3), reintroducing a version
+# floor this fix exists to avoid, for what's otherwise a two-line idiom.
+#
+# 🔥 STOP-SHIP (ZST-355, found by Accounting's review panel): `--diff-filter`
+# used to be `ACM` — Added/Copied/Modified — with no `R`. With git's rename
+# detection on, a PHP file renamed AND modified in the same commit shows up
+# ONLY as status `R`, not `M`, so it was invisible to this scan entirely —
+# format, lint, and the HTTP-status-literal grep all silently skipped it.
+# `--name-only` (not `--name-status`) already reports just the resulting
+# (new) path for a rename, which is exactly the path every consumer of
+# `$staged` below needs — no further change required once `R` is in the
+# filter set.
+staged=()
+while IFS= read -r -d '' zekini_staged_path; do
+  staged+=("$zekini_staged_path")
+done < <(git diff --cached --name-only -z --diff-filter=ACMR -- '*.php')
+
+if [ ${#staged[@]} -eq 0 ]; then
+  exit 0
+fi
+
+# Fresh clone / CI without deps installed — nothing to run, don't block.
+# Found missing 2026-08-31 (whatsapp WHA-83): pre-push has this guard,
+# pre-commit didn't, so a clone with no vendor/ got a raw `docker compose`
+# error instead of this message on its first PHP commit.
+#
+# ⚠️ Found in review: this promised "this message" but printed nothing — a
+# clone with no vendor/, or one where vendor/bin/sail merely lost its exec
+# bit, committed with format, lint, the HTTP-literal grep and the
+# analyse-baseline gate ALL silently skipped, indistinguishable from a
+# clean run. Same shape as bin/eod's library_missing guard, which does
+# print. One echo closes it.
+if [ ! -x "$sail" ]; then
+  echo "⚠ pre-commit: $sail not found or not executable — skipping format/lint/HTTP-literal/analyse checks (fresh clone or CI without deps installed)." >&2
+  exit 0
+fi
+
+# Only now that there is something to check — a commit touching no PHP should
+# not be blocked by a stack that happens to be down.
+zekini_require_tree || exit 1
+
+# Protect any UNSTAGED edits to a file that is only PARTIALLY staged — e.g.
+# `git add -p` staged half a file, deliberately leaving the rest in the
+# working tree. mago format operates on the working tree, not the index, so
+# without this it silently blends the unstaged half into the formatted
+# output, and re-staging below stages all of it — the deliberately-left-out
+# half gets committed too.
+#
+# Fixed 2026-08-31 (ZST-168, found independently by fleet-sms + whatsapp
+# running `/code-review high` over this file). Save the unstaged half as a
+# patch, reset the working tree to match the index (`git checkout --`), let
+# mago format the now-index-only content, re-stage, then re-apply the saved
+# patch — `--3way` so it merges against the pre-format blob rather than
+# needing literal context lines to still match post-format. A `git stash`
+# round-trip was tried first and rejected: `stash pop`'s merge base is HEAD,
+# not the index, so it spuriously conflicts the moment mago reformats a line
+# anywhere near the unstaged hunk even when the two never overlap — proven
+# in a scratch repo before landing here, per this card's own instruction not
+# to patch this blind.
+# ⚠️ Caught in review: both calls below are the same risk class as the
+# git add/ls-files/update-index guards further down (added for the same
+# reason — see their comment) — a bare failure under `set -e` here dies with
+# a raw git error and no explanation. Neither loses anything on its own (the
+# working tree/index are still exactly as the user left them at this point),
+# but a guard costs nothing and matches the rest of this function.
+unstaged_patch="$(mktemp)" || zekini_mktemp_fail
+if ! git diff --binary -- "${staged[@]}" > "$unstaged_patch"; then
+  echo ""
+  echo "✗ git diff failed while checking for unstaged edits — your commit did NOT run."
+  zekini_nothing_touched_yet
+  echo "  Investigate why git diff failed and retry."
+  echo ""
+  rm -f "$unstaged_patch"
+  exit 1
+fi
+has_unstaged=0
+if [ -s "$unstaged_patch" ]; then
+  has_unstaged=1
+  # ⚠️ Caught in review: armed BEFORE the checkout call, not after it
+  # succeeds — `git checkout -- <multiple paths>` is non-atomic (see below),
+  # so a signal can kill it partway through, after some paths are already
+  # reset but before this line would otherwise run. Re-applying
+  # $unstaged_patch is safe (idempotent) against paths checkout never
+  # touched, so arming early only ever helps; arming late would leave the
+  # trap thinking there was "nothing to restore" for exactly the paths a
+  # partial checkout just reset.
+  working_tree_reset=1
+  if ! git checkout -- "${staged[@]}"; then
+    echo ""
+    echo "✗ git checkout failed while resetting the working tree to the index —"
+    echo "  your commit did NOT run."
+    # ⚠️ Caught in review, reproduced in a scratch repo: `git checkout --
+    # <multiple paths>` is NOT atomic — one path can fail (permission denied,
+    # a locked file) after an earlier one in the same list has already been
+    # reset to its staged content. So this may have already overwritten some
+    # of your unstaged edits in the working tree, not none of them — never
+    # claim "unchanged". $unstaged_patch is the only copy that's certainly
+    # complete; treat it as authoritative regardless of what 'git status'
+    # shows the working tree holding right now.
+    echo "  Some of these files' working-tree content may already have been"
+    echo "  reset to the staged version (git checkout -- with multiple paths"
+    echo "  is not atomic) — do not trust 'unchanged'. Your unstaged edits are"
+    echo "  saved in full at: $unstaged_patch"
+    reapply_hint
+    echo "  Investigate why git checkout failed and retry."
+    echo ""
+    exit 1
+  fi
+else
+  rm -f "$unstaged_patch"
+fi
+
+echo "▶ mago format (staged PHP)…"
+# Scope the formatter to the staged files ONLY by passing them as args after
+# `--`. Do NOT run bare `composer format` (i.e. `mago format` with no paths) —
+# that reformats the entire mago.toml source tree, and since we only re-stage
+# "$staged" below, every other file mago touched is left modified-but-unstaged:
+# ~whole-tree format churn on every commit.
+#
+# ⚠️ Explicit staged-file args here WIN over `mago.toml`'s configured
+# `[source] paths` — mago's own behaviour, per its docs. So a staged file
+# under `routes/`, `config/`, `database/migrations/` etc. gets formatted even
+# where a repo's `mago.toml` deliberately excludes those paths from analyse/
+# lint's source set. **Decided ZST-179 (2026-09-03): intentional, not
+# scoped to intersect with `[source] paths`.** `[source] paths` exists to
+# keep `analyse`/`lint` from drowning in Laravel-framework-typed noise
+# outside `app/` — a different question from "should this file's style be
+# consistent." No incident behind this, just a judgement call caught by
+# review.
+#
+# Invoke through the composer script, NOT `sail ./vendor/bin/mago` — Sail has no
+# passthrough for arbitrary binaries and routes it to `docker compose <binary>`,
+# which fails ("unknown docker command"). mago is a native binary, so `sail php`
+# can't run it either; the composer wrapper is the portable path.
+# ⚠️ Captured, not left to `set -e`. Found 2026-08-31 (whatsapp, WHA-91's own
+# review): a FAILING format (a syntax error mago itself can't recover from, a
+# container hiccup) used to abort the script on this line — under `set -e`,
+# non-zero here exits immediately, before ANY of the restore logic below runs.
+# The working tree for these files had already been reset to index-only
+# content above (`git checkout --`) when `has_unstaged=1`, so that abort left
+# a deliberately-unstaged `git add -p` edit stripped out of the working tree
+# and recoverable only from `$unstaged_patch` — a file whose location this
+# path never announced, unlike the `git apply` conflict path a few lines down
+# which does. Capturing the exit code instead means the restore below always
+# runs, whether format succeeded or not, and only THEN do we act on whether it
+# failed.
+format_ok=1
+# ZST-334: bin/lib/redact-secrets.php is a byte-identical copy of the fleet
+# template (templates/hooks/redact-secrets.php, tracked by hook-drift.sh) —
+# not app code with its own house style. Formatting it on first commit made
+# hook-drift.sh's hash check report DRIFTED even though behaviour is
+# unchanged (Mail re-ran redact-secrets.test.php against the reformatted
+# copy: 77/77, same as the template). Exempt it from the FORMATTER only —
+# `$staged` itself is untouched, so lint/analyse below still cover it the
+# same as any other staged PHP; a real regression in this file should still
+# be caught, only its bytes shouldn't drift from the template it's synced
+# from.
+#
+# ⚠️ Matches every `bin/lib/*.php` file, not just this one exact name (caught
+# in review, voc VOC-1210/1213): bin/lib/ is where a verbatim-vendored
+# template file lives BY CONVENTION (this one today, eod-lib.sh's own PHP
+# sibling if the fleet ever adds a second) — an exact-filename match would
+# silently re-expose the identical ZST-334 bug the moment a second such file
+# is ever added there, protecting nothing but the one file that happened to
+# be the first.
+format_targets=()
+for zekini_format_path in "${staged[@]}"; do
+  case "$zekini_format_path" in
+    bin/lib/*.php) continue ;;
+  esac
+  format_targets+=("$zekini_format_path")
+done
+# Do NOT call `composer format --` with zero args if the only staged PHP was
+# the exempted file above — bare `mago format` (no paths) reformats the
+# entire mago.toml source tree, exactly the whole-tree-churn failure mode
+# the comment above this block already warns against.
+#
+# `mago_running` brackets ONLY the actual sail_run call, not this whole
+# block — it's the signal handler's own contract (see its definition above)
+# that it tracks whether that specific command is the thing running. Setting
+# it unconditionally here would lie to a SIGINT/SIGTERM arriving while
+# format_targets is empty: mago never started, so nothing needs the "may be
+# partial content" warning that flag exists to print.
+if [ ${#format_targets[@]} -gt 0 ]; then
+  mago_running=1
+  sail_run composer format -- "${format_targets[@]}" || format_ok=0
+  mago_running=0
+fi
+
+# Re-stage anything mago format touched, then restore any unstaged half
+# protected above — done here, immediately, and BEFORE the checks below that
+# can `exit 1` (lint, the HTTP-literal grep, analyse). Those checks run
+# against whatever the working tree looks like anyway, so restoring first
+# means a later failure never leaves a deliberately-unstaged edit stranded
+# in the checkout-only patch file instead of the working tree. Runs
+# regardless of $format_ok, for the same reason — see the comment above.
+#
+# ⚠️ This DOES mean that when format_ok=0 (mago crashed or errored, possibly
+# leaving partial content written to disk), whatever mago left in the working
+# tree gets staged here too — before the format_ok check below blocks the
+# commit. The commit itself is still refused, so nothing invalid reaches a
+# commit object, but the index can end up holding that partial content until
+# the user re-adds it. Deliberate trade-off, not fixed here: the alternative
+# (skip git add when format_ok=0) reintroduces the stranded-patch bug below,
+# for a narrower failure mode (a mago crash) than the one it would reopen
+# (any `has_unstaged` commit).
+#
+# ⚠️ Caught in review: this call, and the ls-files/update-index calls in the
+# has_unstaged branch below, were still bare under `set -e` — a failure in
+# any of them re-creates the exact silent-loss bug $format_ok's capture above
+# was written to close, just one command later, and worst with has_unstaged=1
+# (the working tree was already reset to index-only content by `git checkout
+# --` above, so the deliberately-unstaged edit survives only in
+# $unstaged_patch, a location an unguarded abort here would never announce).
+#
+# 🔥 STOP-SHIP (ZST-354, found by Accounting's review panel): this was the
+# ONLY call over `$staged` in this file missing `--` before the path list —
+# every sibling (`git diff --binary -- "${staged[@]}"`, `git checkout --
+# "${staged[@]}"`, `git status --porcelain -- "${staged[@]}"`, `git ls-files
+# -s -- "${staged[@]}"`) already has it. Without it, a staged file with a
+# leading-dash basename (`-foo.php`, say) parses as a git OPTION instead of
+# a path — `git add` either errors on an unrecognized flag or, worse,
+# silently changes what it does — and the commit is permanently blocked
+# until the file is renamed, since this exact call is what re-stages the
+# formatter's output on every commit from here on.
+if ! git add -- "${staged[@]}"; then
+  echo ""
+  echo "✗ git add failed while re-staging the formatted files — your commit did NOT run."
+  echo "  Current state of the affected files (XY = index/worktree status):"
+  # Best-effort only: a failure here (same root cause as git add's — an index
+  # lock, say) must NOT itself abort under set -e and skip the rest of this
+  # diagnostic and the exit 1 below, which is the exact bug class this whole
+  # block exists to close. Caught in review.
+  git status --porcelain -- "${staged[@]}" 2>/dev/null || true
+  if [ "$has_unstaged" -eq 1 ]; then
+    zekini_unstaged_half_safe_at "$unstaged_patch"
+  fi
+  warn_if_format_also_failed
+  echo "  Investigate why git add failed (disk full, permissions, index lock,"
+  echo "  or one of the files above) and retry."
+  echo ""
+  exit 1
+fi
+
+if [ "$has_unstaged" -eq 1 ]; then
+  # `git apply --3way`'s merge fallback writes to the INDEX as a side effect
+  # even on a clean, non-conflicting merge (verified in a scratch repo) — not
+  # only on conflict — so snapshot the index we just staged and restore it
+  # exactly afterward rather than trusting apply to leave it alone.
+  index_snapshot="$(mktemp)" || zekini_mktemp_fail "$unstaged_patch"
+  if ! git ls-files -s -- "${staged[@]}" > "$index_snapshot"; then
+    echo ""
+    echo "✗ git ls-files failed while snapshotting the index — your commit did NOT run."
+    zekini_unstaged_half_safe_at "$unstaged_patch"
+    warn_if_format_also_failed
+    echo ""
+    rm -f "$index_snapshot"
+    exit 1
+  fi
+
+  apply_ok=1
+  # Set BEFORE the call, not after — the trap only needs to know an attempt
+  # happened at all (so it never re-runs this itself on top of a conflict
+  # this call may already have left), not whether it succeeded.
+  #
+  # ⚠️ KNOWN, NARROWED GAP (caught in review), same tradeoff class as
+  # working_tree_reset's own early-arming gap documented above: a signal
+  # landing in the single-statement gap between this assignment and the
+  # `git apply` call actually running means the call never happened at all,
+  # yet the trap sees apply_attempted=1 and takes the "already mid-restore,
+  # don't re-run it" branch — giving the user a manual-reapply pointer
+  # instead of attempting the automatic recovery it could safely have done.
+  # Arming after the call instead would reopen the worse gap this flag
+  # exists to close (re-running apply on top of a conflict it already left),
+  # so this is the same "pick which narrow window stays open" call as
+  # working_tree_reset's, made the same way: nothing is lost either way,
+  # $unstaged_patch is intact, only the recovery path is less automatic.
+  apply_attempted=1
+  git apply --whitespace=nowarn --3way "$unstaged_patch" || apply_ok=0
+  # ⚠️ Caught in review: clear working_tree_reset as soon as apply SUCCEEDS,
+  # not only once this whole has_unstaged block finishes further down. The
+  # working tree itself is already fully restored the instant this apply
+  # call returns 0 — everything from here on (ls-files/update-index) only
+  # touches the INDEX. A signal landing in that remaining window used to
+  # leave working_tree_reset=1 and $unstaged_patch un-rm'd, so the trap
+  # would re-run `git apply` a SECOND time against content that already has
+  # it merged in — at best a confusing "re-apply failed" against an already-
+  # clean tree, at worst conflict markers written into content that needed
+  # no further changes.
+  if [ "$apply_ok" -eq 1 ]; then
+    working_tree_reset=0
+    # ZST-261: the tree is restored, but $unstaged_patch isn't rm'd until
+    # after the index bookkeeping below — arm the narrower flag so a signal
+    # in that remaining window still gets told where the stale copy is,
+    # instead of silently leaking it.
+    unstaged_patch_pending_rm=1
+  fi
+  # ⚠️ Caught in review: this branch used to assume apply_ok=1 unconditionally
+  # (claiming the unstaged half was "re-applied" and deleting $unstaged_patch
+  # even when apply had just failed with conflict markers still in the
+  # working tree) — destroying the one recovery artifact the apply_ok=0
+  # handler further down needs, and never reaching that handler to say so.
+  if ! git update-index --index-info < "$index_snapshot"; then
+    echo ""
+    echo "✗ git update-index failed while restoring the index snapshot — your commit did NOT run."
+    if [ "$apply_ok" -eq 0 ]; then
+      # git apply --3way can fail WITHOUT writing conflict markers at all —
+      # a malformed patch, a missing pre-image blob, an unwritable path.
+      # Never assert markers exist; the only certain thing is $unstaged_patch.
+      echo "  git apply ALSO failed above, and the index restore failed too."
+      echo "  Nothing about your CONTENT is lost: the original unstaged diff is"
+      echo "  still saved at: $unstaged_patch"
+      echo "  Run 'git status' — if you see <<<<<<< conflict markers, resolve"
+      echo "  them by hand; otherwise the apply made no changes at all."
+      reapply_hint
+      echo "  The pre-restore index snapshot (what the index looked like right"
+      echo "  after re-staging, before this failed) is also saved, in case you"
+      echo "  want it instead of a fresh 'git add': $index_snapshot"
+      echo "  Then re-stage and commit again."
+    else
+      echo "  The working tree has your unstaged half re-applied (git apply ran"
+      echo "  successfully before this), but the INDEX may be left however git"
+      echo "  apply's 3-way merge side effect shaped it, not the snapshot taken"
+      echo "  before it. Run 'git status', re-stage what you intend by hand,"
+      echo "  then commit again."
+      rm -f "$index_snapshot" "$unstaged_patch"
+    fi
+    warn_if_format_also_failed
+    echo ""
+    exit 1
+  fi
+  rm -f "$index_snapshot"
+
+  if [ "$apply_ok" -eq 0 ]; then
+    echo ""
+    echo "✗ Your commit did NOT run. Restoring the unstaged half you"
+    echo "  deliberately left out conflicted with the staged half — nothing"
+    echo "  was lost, but it needs your judgement to merge."
+    if [ "$format_ok" -eq 0 ]; then
+      # Caught in review: this branch is now reachable together with a
+      # format failure (format_ok=0), which it could not be before —
+      # previously `set -e` aborted on a failing format before git add/apply
+      # ever ran, so this message was written assuming format had SUCCEEDED.
+      # Say so explicitly rather than let the next line's "exactly as
+      # formatted" claim stand uncorrected.
+      echo "  ⚠️ mago format ALSO failed on the staged content (error above) —"
+      echo "  the staged half may not be validly formatted, whatever you"
+      echo "  merge it with. Fix that error too before re-committing."
+    else
+      echo "  The staged half stayed exactly as formatted (unaffected)."
+    fi
+    # ⚠️ Caught in review: don't assert conflict markers exist — git apply
+    # --3way can fail without writing any (a malformed patch, a missing
+    # pre-image blob, an unwritable path). $unstaged_patch is the only
+    # certain thing; check 'git status' before hunting for markers.
+    echo "  Run 'git status' — if you see <<<<<<< conflict markers, resolve"
+    echo "  them by hand; otherwise the apply made no changes at all. The"
+    echo "  original unstaged diff is saved either way at: $unstaged_patch"
+    echo "  Then re-add and commit again."
+    echo ""
+    exit 1
+  fi
+  rm -f "$unstaged_patch"
+  # working_tree_reset is NOT reassigned here (caught in review, voc
+  # VOC-1210/1213) — reaching this line requires apply_ok=1 (any apply_ok=0
+  # exits at line 654 above), and apply_ok=1 already cleared it earlier in
+  # this same block. A second `=0` here was a dead no-op that made a reader
+  # re-trace the apply_ok branches to confirm it wasn't a real second state
+  # transition.
+  unstaged_patch_pending_rm=0
+fi
+
+if [ "$format_ok" -eq 0 ]; then
+  echo ""
+  echo "✗ mago format failed on the staged files — your commit did NOT run."
+  if [ "$has_unstaged" -eq 1 ]; then
+    # Caught in review (voc VOC-1210/1213): reaching THIS point with
+    # has_unstaged=1 means the earlier has_unstaged block above already ran
+    # to completion — every one of its own failure paths (checkout, a
+    # conflicting apply, a failed index restore) exits 1 before execution
+    # ever gets here. So the unstaged half was always cleanly re-applied, no
+    # conflict marker is possible, and the old "or a conflict marker if it
+    # collided" hedge sent people hunting for one that provably never existed.
+    echo "  Your deliberately-unstaged half of these files has already been"
+    echo "  restored above."
+  fi
+  echo "  ⚠️ Whatever mago left on disk for these files is now STAGED (re-added"
+  echo "  above so a restart of this hook doesn't strand your unstaged half) —"
+  echo "  if mago crashed mid-write that may be partial content, not your"
+  echo "  original. Check 'git diff --cached' on the files above before re-adding."
+  echo "  Fix mago's error (shown above), then re-add and commit again."
+  echo ""
+  exit 1
+fi
+
+# Promoted from loupe 2026-08-31 (ZST-127, its card 277): bare `mago lint`
+# prints ~280 issues of which none gate, so the one error that refuses the
+# commit is invisible. `ops:lint` prints the errors and counts the rest,
+# keeping every flag `composer lint` carries. A repo without the command
+# falls back to the plain report — same gate as pre-push's promotion of this.
+#
+# ⚠️ Found in review (ZST-357): this was the only gate in this file dying
+# via bare `set -e` instead of going through the same `if !`/`|| fail`
+# capture pattern every OTHER gate uses — no "your commit did NOT run"
+# banner, just mago's own raw output and a silent non-zero exit. Harmless
+# in practice today (repo state is already fully resolved by this point:
+# format has already run and re-staged, so there is no unstaged-patch
+# recovery this failure could strand, unlike the format gate above), but
+# inconsistent with no comment explaining why THIS call was the exception —
+# and "harmless today" is exactly the kind of assumption a future edit
+# upstream of this line could quietly invalidate. `lint_ok`, same
+# capture-then-check idiom `format_ok` above already uses, so a future
+# edit adding real cleanup between here and the commit has a codepath to
+# hang it on instead of reinventing one under time pressure.
+lint_ok=1
+if [ -f app/Console/Commands/LintGate.php ]; then
+  echo "▶ mago lint (ops:lint)…"
+  sail_run php artisan ops:lint || lint_ok=0
+else
+  echo "▶ mago lint…"
+  sail_run composer lint || lint_ok=0
+fi
+
+if [ "$lint_ok" -eq 0 ]; then
+  echo ""
+  echo "✗ mago lint failed — your commit did NOT run."
+  echo "  Fix the errors shown above, then re-add and commit again."
+  echo ""
+  exit 1
+fi
+
+# No numeric HTTP status codes — use Symfony Response::HTTP_* constants.
+#
+# Widened 2026-08-18 (ZST-133), promoted from loupe's fork of this hook (its card
+# 427). It used to match only two shapes — `abort*(…NNN)` and
+# `->setStatusCode(NNN)` — so the rule was enforced for the cases somebody
+# thought of and unenforced everywhere else. A literal passed to a Response
+# constructor was invisible, which is exactly how
+# `new Response($body, $isFake ? 200 : 404)` sat in loupe's FakeCheckoutController
+# through every push.
+#
+# The shapes matched:
+#   abort(404) / abort_if(…, 404) / abort_unless(…, 404)
+#   ->setStatusCode(404)
+#   new Response(…, 404) / new JsonResponse(…, 404)   ← the one that got through
+#   response(…, 404) / ->json(…, 404)
+#   status: 404                                        ← named argument
+#
+# ⚠️ A status assigned to a VARIABLE first and passed later is still invisible to
+# a grep, and always will be. This narrows the gap; it does not close it. `mago`
+# cannot see it either — the standard is a convention, not a type.
+#
+# ⚠️ TWO MORE KNOWN GAPS, found 2026-08-31 by two independent sessions running
+# `/code-review high` over this file (fleet-sms, whatsapp) — neither is fully
+# closed, both are narrowed:
+#   - `[^)]*` stops at the FIRST `)`, so any call with a nested call in its
+#     argument list is invisible: `response()->json(['e' => $x->getMessage()],
+#     409)` does not match. No fix without real parenthesis balancing, which
+#     ERE cannot do.
+#   - The pattern matched ANY 1-5xx number appearing anywhere before the first
+#     `)`, not only one in the status-code position — `abort_if($count > 200,
+#     Response::HTTP_FORBIDDEN)` matched on "200" despite already using the
+#     required constant. Also matched Laravel's HTTP-fake testing API,
+#     `Http::response('', 200)` inside `Http::fake([...])` — a simulated
+#     response status, not a violation. The `Http::fake`/`Http::response`
+#     exclusion below closes that specific false-positive; the "number
+#     anywhere in the call" over-match for `abort*`/`response`/`->json` is
+#     still open — treat any hit against those four shapes as needing a human
+#     look, not an automatic violation.
+#
+# ⚠️ A THIRD KNOWN GAP, found 2026-08-31 (voc, running `/code-review high` over
+# its own re-sync of this file): the `Http::(fake|response)` exclusion drops
+# the ENTIRE matched LINE, not just the false-positive substring — because
+# `grep -v` cannot un-match part of a line, only accept or reject the whole
+# thing. A genuine violation golfed onto the same physical line as an
+# `Http::fake`/`Http::response` call is filtered out along with it and never
+# reaches `$http_lits`:
+# `Http::fake(['*' => Http::response('', 200)]); abort(403);` slips through
+# uncaught. Not fixed here: closing it properly needs matching and removing
+# just the `Http::fake(...)`/`Http::response(...)` call from the line before
+# testing the rest, which runs straight into the SAME parenthesis-balancing
+# wall as the first gap above — a naive strip is confident-looking and wrong
+# on a nested call, which is worse than the narrow miss this leaves open.
+# Real fix needs a tool that can parse an argument list, not a bigger regex.
+#
+# `-H` on grep so a single-staged-file run still names the file in its own
+# output; NUL-delimited (`printf '%s\0'` / `xargs -0`), not the default
+# whitespace splitting, so a staged path containing a space is handed to
+# grep as one argument, not two nonexistent ones that `2>/dev/null` would
+# then silently swallow.
+#
+# ⚠️ Found in review: previously `xargs -d '\n'`, a GNU extension that
+# ABORTS on BSD/macOS xargs. `-0`/NUL-delimited is portable across GNU and
+# BSD xargs alike, so this closes THAT portability gap — the specific
+# BSD-xargs trigger is gone.
+#
+# ⚠️ Caught in review (Loupe, LOU-820): this does NOT close the underlying
+# fail-open SHAPE, and an earlier version of this comment wrongly claimed it
+# did. `2>/dev/null` still swallows this stage's own stderr, and the
+# pipeline still ends in `|| true` — an unreadable file, an exec failure,
+# E2BIG, or any other failure in this xargs stage still yields an EMPTY
+# $http_lits, and the gate below still reports "clean" without having run,
+# on the one grep that enforces the Response::HTTP_* rule. Left as-is
+# deliberately: a hard failure of this grep stage blocking every commit is
+# its own, separate problem, not fixed here — just don't read this comment
+# as saying the gate can no longer fail open, because it still can.
+#
+# ⚠️ Found in review (ZST-359, the grep sibling of ZST-354's `git add` gap):
+# `xargs -0` appends the staged paths straight after the pattern with no
+# `--` inserted, so a staged file with a leading-dash basename is parsed as
+# a grep OPTION instead of a path — verified live: grep then reports "No
+# such file or directory" for the PATTERN string itself (grep having
+# consumed it as an argument to a flag the leading-dash "path" was read as)
+# and exits non-zero, which the `2>/dev/null`/`|| true` above silently
+# swallow into the SAME fail-open path this comment already documents —
+# the HTTP-status-literal check silently skips exactly the file whose name
+# triggered the bug, no error, no block. `--` placed right after the
+# pattern (not before it — the pattern itself is a fixed, hardcoded regex
+# that never starts with `-`, only the xargs-appended paths need
+# protecting) stops grep's own option parsing there, so every path xargs
+# appends afterward is treated as a path no matter what it starts with —
+# verified live against a real leading-dash-named PHP file.
+http_lits=$(printf '%s\0' "${staged[@]}" \
+  | xargs -0 grep -nHE 'abort(_if|_unless)?[[:space:]]*\([^)]*\b[1-5][0-9]{2}\b|->setStatusCode\([[:space:]]*[1-5][0-9]{2}\b|new[[:space:]]+(Json)?Response\([^)]*,[[:space:]]*[1-5][0-9]{2}\b|response\([^)]*,[[:space:]]*[1-5][0-9]{2}\b|->json\([^)]*,[[:space:]]*[1-5][0-9]{2}\b|status:[[:space:]]*[1-5][0-9]{2}\b' -- 2>/dev/null \
+  | grep -vE 'Http::(fake|response)\(' || true)
+if [ -n "$http_lits" ]; then
+  echo "✗ Numeric HTTP status code found — use Response::HTTP_* constants instead:"
+  echo "$http_lits"
+  exit 1
+fi
+
+# A NEWLY ADDED PHP file must arrive with its analyse baseline entries.
+#
+# `mago analyse` excludes vendor, so every new Laravel-typed file (a controller
+# typed against Illuminate\Http\Request, a model touched via magic properties…)
+# produces findings that have to be added to mago-analyse-baseline.toml in the
+# same commit. Nothing otherwise enforces that at commit time: the pre-push hook
+# runs a full `composer analyse`, but by then the finding is buried among the
+# whole repo's output and it is the NEXT person who trips over it — hitting a
+# red gate on a file they never touched.
+#
+# Scoped to the added files so the hook stays fast, and so the message can name
+# the actual culprit.
+#
+# `app/` ONLY, deliberately. Passing explicit paths OVERRIDES mago.toml's
+# `paths = ["app"]`, so an added Pest test dragged into scope is analysed on its
+# own — and `it()` / `expect()` come from the Pest bootstrap, which is not in
+# that scope. Without this restriction every new test file "fails" a gate that
+# the real `composer analyse` never even looks at.
+# NUL-delimited, same reason and same `while read -r -d ''` shape as
+# `staged` above (see its comment for why not `mapfile -d ''`, and why not
+# extracted into a shared helper).
+#
+# 🔥 STOP-SHIP (ZST-355, found by Accounting's review panel): `--diff-filter`
+# used to be `A` alone, missing `R` for the same reason `staged` above did.
+# A rename is exactly the shape this check exists for, not an edge case of
+# it: `mago-analyse-baseline.toml` is keyed by file path, so a renamed file
+# needs its OWN baseline entry at the NEW path regardless of whether its
+# content also changed — the old path's entry doesn't carry over. Without
+# `R`, a renamed controller/model landed with zero baseline coverage at its
+# new path and the real `composer analyse` in pre-push was the first thing
+# to notice, exactly the "next person trips over it" failure this whole
+# check was written to prevent.
+added=()
+while IFS= read -r -d '' zekini_added_path; do
+  added+=("$zekini_added_path")
+done < <(git diff --cached --name-only -z --diff-filter=AR -- 'app/*.php')
+
+if [ ${#added[@]} -gt 0 ]; then
+  echo "▶ mago analyse (newly added PHP)…"
+  if ! sail_run composer analyse -- "${added[@]}"; then
+    echo ""
+    echo "✗ A file you are ADDING has analyse findings that are not in the baseline:"
+    printf '    %s\n' "${added[@]}"
+    echo ""
+    echo "  Most are unavoidable — mago cannot see vendor, so Laravel-typed files"
+    echo "  always report. Baseline them, in this commit, so the next person does"
+    echo "  not inherit a red gate:"
+    echo ""
+    echo "      ./vendor/bin/sail composer analyse -- --generate-baseline"
+    echo ""
+    echo "  Run that UNSCOPED, as written. --generate-baseline rewrites the whole"
+    echo "  file, so a scoped run silently DROPS the entries for every file"
+    echo "  outside the scope. Then check the diff and keep only your own entries."
+    echo ""
+    exit 1
+  fi
+fi
+
+echo "✓ pre-commit checks passed"

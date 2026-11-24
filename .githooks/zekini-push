@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+#
+# The one legitimate `git push --no-verify` (from zekini-com/standards, ZST-488).
+# Copied into each repo as bin/zekini-push; hook-drift.sh holds it byte-identical.
+#
+# Usage:
+#   bin/zekini-push                     # HEAD → origin, the current branch
+#   bin/zekini-push <remote>            # HEAD → <remote>, the current branch
+#   bin/zekini-push <remote> <branch>   # HEAD → <remote>/<branch>
+#
+# Owner decision 2026-09-23: `--no-verify` stays (it is how a session avoids
+# re-running a ten-minute suite it has just run), but a push must carry MACHINE
+# proof that the full suite, browser included, ran green on the exact SHA being
+# pushed. LOU-968 reached main with its browser suite red: the session ran
+# `composer test` (Unit + Feature only), called it "the full local suite", and
+# pushed with `--no-verify`. Nothing checked what "full" meant.
+#
+# The proof is the green receipt that .githooks/pre-push writes at the end of a
+# passing run ($GIT_DIR/zekini-green). This script pushes only when that receipt:
+#   1. exists — the last gate run passed (a red or interrupted run leaves none);
+#   2. names HEAD — nothing was committed since, and the tree tested was HEAD;
+#   3. lists nothing as missing — no stage was skipped (SKIP_SLOW_TESTS, the
+#      diff-aware frontend skip);
+#   4. lists the browser stage wherever the repo has browser specs.
+# Then it runs `git push --no-verify`, pushing HEAD and nothing else: a free-form
+# refspec could push a commit the receipt says nothing about.
+#
+# Getting a receipt without pushing: run the gate directly, with every lane on —
+#   ZEKINI_FULL_GATE=true .githooks/pre-push origin </dev/null
+#
+# What `--no-verify` still skips, here as anywhere: the hook's version-collision
+# and review-attestation checks for the pushed commit (a direct run has no ref
+# list on stdin, so it has no pushed commit to judge). The VERSION bump stays
+# the review receipt (docs/review-attestation.md); this is the TESTS receipt.
+#
+# The protected branch is refused here exactly as the hook refuses it: the
+# receipt proves the suite, not that main may be pushed to directly.
+#
+# Fleet does not use this: its manifest is its receipt — it runs every gate on
+# the card's change and pushes only after the final gate passed
+# (docs/fleet-orchestrator/git.md, "Green receipt").
+
+set -uo pipefail
+
+refuse() {
+  echo "✗ zekini-push: $1" >&2
+  shift
+  local line
+  for line in "$@"; do
+    echo "  $line" >&2
+  done
+  echo "  Nothing was pushed." >&2
+  exit 1
+}
+
+[ "$#" -le 2 ] || refuse "takes at most <remote> <branch> (got $# arguments)." "It pushes HEAD only — the commit the receipt is about."
+
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || refuse "not inside a git work tree."
+cd "$top" || refuse "cannot enter $top."
+
+if [ -f .githooks/config ]; then
+  # shellcheck disable=SC1091
+  . .githooks/config
+fi
+protected="${ZEKINI_PROTECTED_BRANCH:-main}"
+
+remote="${1:-origin}"
+branch="${2:-}"
+if [ -z "$branch" ]; then
+  branch="$(git symbolic-ref --short -q HEAD)" || refuse "HEAD is detached — name the branch: bin/zekini-push ${remote} <branch>."
+fi
+branch="${branch#refs/heads/}"
+
+if [ "$branch" = "$protected" ]; then
+  refuse "direct pushes to '${protected}' are blocked — open a PR instead." "The receipt proves the suite ran green; it does not lift branch protection."
+fi
+
+head="$(git rev-parse --verify -q HEAD)" || refuse "this repository has no commits."
+receipt="$(git rev-parse --git-path zekini-green)"
+run_gate="ZEKINI_FULL_GATE=true .githooks/pre-push ${remote} </dev/null"
+
+[ -f "$receipt" ] || refuse "no green receipt ($receipt)." \
+  "The last gate run failed, was interrupted, tested uncommitted changes, or never ran." \
+  "Run the full gate, then this again: ${run_gate}"
+
+sha=""
+stages=""
+missing=""
+browser_tests=""
+at=""
+while IFS='=' read -r key value; do
+  case "$key" in
+    sha) sha="$value" ;;
+    stages) stages="$value" ;;
+    missing) missing="$value" ;;
+    browser-tests) browser_tests="$value" ;;
+    at) at="$value" ;;
+  esac
+done < "$receipt"
+
+[ -n "$sha" ] || refuse "the green receipt names no commit ($receipt)." "Run the full gate again: ${run_gate}"
+
+if [ "$sha" != "$head" ]; then
+  refuse "the green receipt is for ${sha:0:12}, but HEAD is ${head:0:12}." \
+    "Something was committed (or checked out) after the gate ran, so HEAD was never tested." \
+    "Run the full gate again: ${run_gate}"
+fi
+
+if [ "$browser_tests" = "yes" ]; then
+  case " $stages " in
+    *" browser "*) ;;
+    *)
+      case " $missing " in
+        *" browser "*) ;;
+        *) missing="${missing:+$missing }browser" ;;
+      esac
+      ;;
+  esac
+fi
+
+if [ -n "$missing" ]; then
+  refuse "the gate on ${head:0:12} passed, but NOT the full suite — missing stage(s): ${missing}." \
+    "Ran: ${stages:-none}." \
+    "Run every lane (ZEKINI_FULL_GATE=true, SKIP_SLOW_TESTS off): ${run_gate}"
+fi
+
+echo "✓ zekini-push: green receipt checked —"
+echo "    commit   ${head} (HEAD)"
+echo "    stages   ${stages:-none}"
+echo "    browser  $([ "$browser_tests" = "yes" ] && echo "ran (the repo has browser specs)" || echo "not required (no browser specs)")"
+echo "    at       ${at:-unknown}"
+echo "▶ git push --no-verify ${remote} HEAD:refs/heads/${branch}"
+
+exec git push --no-verify "$remote" "HEAD:refs/heads/${branch}"

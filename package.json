@@ -1,0 +1,19 @@
+{
+    "$schema": "https://www.schemastore.org/package.json",
+    "name": "propertytrail",
+    "private": true,
+    "type": "module",
+    "workspaces": [
+        "web",
+        "packages/ui",
+        "vendor/zekini/auth/js"
+    ],
+    "scripts": {
+        "build": "npm run build --workspace web",
+        "dev": "npm run dev --workspace web",
+        "typecheck": "npm run typecheck --workspace web"
+    },
+    "optionalDependencies": {
+        "@laravel/multiplex": "^0.4.1"
+    }
+}

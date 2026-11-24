@@ -1,0 +1,163 @@
+variant = "loose"
+
+[[issues]]
+file = "app/Actions/Fortify/PasswordValidationRules.php"
+code = "strict-types"
+message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/ResetUserPassword.php"
+code = "strict-types"
+message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserPassword.php"
+code = "strict-types"
+message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserProfileInformation.php"
+code = "no-else-clause"
+message = "Avoid `else` clauses."
+count = 1
+
+[[issues]]
+file = "app/Actions/Fortify/UpdateUserProfileInformation.php"
+code = "strict-types"
+message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/GoogleAuthController.php"
+code = "no-else-clause"
+message = "Avoid `elseif` clauses."
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/GoogleAuthController.php"
+code = "no-shorthand-ternary"
+message = "Use of the shorthand ternary operator."
+count = 3
+
+[[issues]]
+file = "app/Http/Controllers/Controller.php"
+code = "no-empty-comment"
+message = "Empty comments are not allowed."
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Controller.php"
+code = "strict-types"
+message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
+
+[[issues]]
+file = "app/Models/AuditLog.php"
+code = "prefer-casts-method"
+message = "Define model casts in the `casts()` method instead of the `$casts` property."
+count = 1
+
+[[issues]]
+file = "app/Models/Concerns/Auditable.php"
+code = "no-shorthand-ternary"
+message = "Use of the shorthand ternary operator."
+count = 1
+
+[[issues]]
+file = "app/Models/EvidenceRecord.php"
+code = "prefer-casts-method"
+message = "Define model casts in the `casts()` method instead of the `$casts` property."
+count = 1
+
+[[issues]]
+file = "app/Models/Organisation.php"
+code = "prefer-casts-method"
+message = "Define model casts in the `casts()` method instead of the `$casts` property."
+count = 1
+
+[[issues]]
+file = "app/Models/OrganisationUser.php"
+code = "prefer-casts-method"
+message = "Define model casts in the `casts()` method instead of the `$casts` property."
+count = 1
+
+[[issues]]
+file = "app/Models/Property.php"
+code = "prefer-casts-method"
+message = "Define model casts in the `casts()` method instead of the `$casts` property."
+count = 1
+
+[[issues]]
+file = "app/Models/User.php"
+code = "no-literal-password"
+message = "Literal passwords or sensitive data should not be stored in code."
+count = 1
+
+[[issues]]
+file = "app/Models/User.php"
+code = "prefer-static-closure"
+message = "This arrow function does not use `$this` and should be declared static."
+count = 1
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "no-empty-comment"
+message = "Empty comments are not allowed."
+count = 1
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "no-shorthand-ternary"
+message = "Use of the shorthand ternary operator."
+count = 1
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "prefer-arrow-function"
+message = "This closure can be simplified to a more concise arrow function."
+count = 1
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "prefer-static-closure"
+message = "This closure does not use `$this` and should be declared static."
+count = 3
+
+[[issues]]
+file = "app/Providers/FortifyServiceProvider.php"
+code = "strict-types"
+message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
+
+[[issues]]
+file = "app/Services/EvidenceIngestionService.php"
+code = "cyclomatic-complexity"
+message = "Class has high complexity."
+count = 1
+
+[[issues]]
+file = "app/Services/EvidenceIngestionService.php"
+code = "no-shorthand-ternary"
+message = "Use of the shorthand ternary operator."
+count = 1
+
+[[issues]]
+file = "database/factories/UserFactory.php"
+code = "prefer-static-closure"
+message = "This arrow function does not use `$this` and should be declared static."
+count = 1
+
+[[issues]]
+file = "database/factories/UserFactory.php"
+code = "strict-types"
+message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
+
+[[issues]]
+file = "database/seeders/DatabaseSeeder.php"
+code = "strict-types"
+message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
