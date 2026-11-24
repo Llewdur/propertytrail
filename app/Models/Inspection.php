@@ -33,6 +33,9 @@ final class Inspection extends Model
     public const STATUS_DRAFT = 'draft';
     public const STATUS_SUBMITTED = 'submitted';
 
+    public const PHASE_INCOMING = 'incoming';
+    public const PHASE_OUTGOING = 'outgoing';
+
     /** @var list<string> */
     public const PHASES = ['incoming', 'outgoing', 'interim'];
 

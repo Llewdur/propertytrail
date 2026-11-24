@@ -25,6 +25,7 @@ final class ReportService
 
     public function __construct(
         private readonly StorageAdapterInterface $storage,
+        private readonly ComparisonService $comparison,
     ) {}
 
     public function findFor(Inspection $inspection): ?InspectionReport
@@ -98,12 +99,28 @@ final class ReportService
         $organisation = Organisation::query()->find($inspection->organisation_id);
         $signatures = $inspection->signatures->keyBy('party');
 
+        $comparison = $this->comparison->compare($inspection);
+        $markers = [];
+
+        foreach ($comparison['rows'] ?? [] as $row) {
+            if ($row['outgoing_item_id'] === null) {
+                continue;
+            }
+
+            $markers[$row['outgoing_item_id']] = match ($row['category']) {
+                ComparisonService::EXISTING_DEFECT => '(as at move-in)',
+                ComparisonService::POTENTIAL_NEW_DAMAGE => '(potential new damage)',
+                default => null,
+            };
+        }
+
         $rooms = $inspection->sections->map(fn(InspectionSection $section): array => [
             'title' => $section->title,
             'items' => $section->items->map(static fn(InspectionItem $item): array => [
                 'label' => $item->label,
                 'condition' => $item->condition,
                 'note' => $item->note,
+                'marker' => $markers[$item->id] ?? null,
             ])->all(),
             'photos' => $this->roomPhotos($section),
         ])->all();
@@ -117,6 +134,8 @@ final class ReportService
             'landlord' => $signatures->get(InspectionSignature::PARTY_LANDLORD),
             'tenant' => $signatures->get(InspectionSignature::PARTY_TENANT),
             'rooms' => $rooms,
+            'comparison' => $comparison,
+            'discrepancyCategories' => ComparisonService::CATEGORY_LABELS,
             'footer' => Legal::REPORT_DISCLAIMER,
             'generatedAt' => now()->toIso8601String(),
         ])->render();
