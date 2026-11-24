@@ -1,6 +1,7 @@
 import { Button, Card } from '@zekini/ui';
 import { useEffect, useState } from 'react';
 import { AuthPanel } from './AuthPanel';
+import InspectionPanel from './InspectionPanel';
 import LeasePhotosPanel from './LeasePhotosPanel';
 import { ProfileMenu } from './ProfileMenu';
 import { fetchMe, firstError, logout, type AuthUser, type Bootstrap } from './auth';
@@ -149,6 +150,11 @@ export default function App() {
                         </Card>
 
                         <LeasePhotosPanel
+                            apiBase={bootstrap.apiBase ?? '/api/v1'}
+                            organisationId={bootstrap.currentOrganisationId ?? null}
+                        />
+
+                        <InspectionPanel
                             apiBase={bootstrap.apiBase ?? '/api/v1'}
                             organisationId={bootstrap.currentOrganisationId ?? null}
                         />
