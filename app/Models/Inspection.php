@@ -79,6 +79,42 @@ final class Inspection extends Model
         return $this->status === self::STATUS_DRAFT;
     }
 
+    /**
+     * @param array<array-key, int> $itemIds
+     * @return array<array-key, list<array<string, mixed>>>
+     */
+    private function itemPhotos(array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $links = EvidenceLink::query()
+            ->with('evidenceRecord')
+            ->where('attachable_type', new InspectionItem()->getMorphClass())
+            ->whereIn('attachable_id', $itemIds)
+            ->orderBy('id')
+            ->get();
+
+        $replaced = $links->pluck('replaces_link_id')->filter()->all();
+        $grouped = [];
+
+        foreach ($links as $link) {
+            $grouped[$link->attachable_id][] = [
+                'link_id' => $link->id,
+                'evidence_id' => $link->evidenceRecord->id,
+                'caption' => $link->label,
+                'file_name' => $link->evidenceRecord->file_name,
+                'mime_type' => $link->evidenceRecord->mime_type,
+                'taken_at' => $link->taken_at?->toIso8601String(),
+                'replaces_link_id' => $link->replaces_link_id,
+                'superseded' => in_array($link->id, $replaced, true),
+            ];
+        }
+
+        return $grouped;
+    }
+
     /** @return array<string, mixed> */
     public function payload(): array
     {
@@ -86,6 +122,17 @@ final class Inspection extends Model
 
         /** @var Collection<int, InspectionItem> $items */
         $items = $this->sections->flatMap(static fn(InspectionSection $section): Collection => $section->items);
+
+        $photos = $this->itemPhotos(
+            $items
+                ->pluck('id')
+                ->map(static fn(mixed $id): int => (int) $id)
+                ->all(),
+        );
+
+        foreach ($items as $item) {
+            $item->setRelation('photos', new Collection($photos[$item->id] ?? []));
+        }
 
         return $this->toArray()
         + [
