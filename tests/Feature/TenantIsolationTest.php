@@ -20,7 +20,7 @@ it('only returns properties from the resolved organisation', function (): void {
     ['organisation' => $alpha, 'user' => $user] = tenantUser('alpha');
 
     $beta = app(OrganisationWriteFactory::class)->create(['name' => 'Organisation Beta']);
-    app(UserWriteFactory::class)->attachToOrganisation($user, $beta, 'member');
+    app(UserWriteFactory::class)->attachToOrganisation($user, $beta, 'admin');
 
     app(CurrentOrganisation::class)->set($alpha->id);
     $alphaProperty = app(PropertyWriteFactory::class)->create(propertyPayload('Alpha House'));
