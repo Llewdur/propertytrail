@@ -26,6 +26,7 @@ final class ReportService
     public function __construct(
         private readonly StorageAdapterInterface $storage,
         private readonly ReportBrandingService $branding,
+        private readonly DeliveryService $deliveries,
     ) {}
 
     public function findFor(Inspection $inspection): ?InspectionReport
@@ -54,7 +55,13 @@ final class ReportService
         $bytes = $this->render($inspection, $reference);
         $path = sprintf('reports/%d/%d/v%d.pdf', $inspection->organisation_id, $inspection->id, $version);
 
-        return DB::transaction(function () use ($inspection, $version, $reference, $bytes, $path): ?InspectionReport {
+        $report = DB::transaction(function () use (
+            $inspection,
+            $version,
+            $reference,
+            $bytes,
+            $path,
+        ): ?InspectionReport {
             $locked = Inspection::query()->lockForUpdate()->find($inspection->id);
 
             if ($locked === null || $this->findFor($locked) !== null) {
@@ -79,6 +86,10 @@ final class ReportService
 
             return $report;
         });
+
+        $this->deliveries->afterLock($inspection, $report);
+
+        return $report;
     }
 
     /** The stored bytes, exactly as locked. */
