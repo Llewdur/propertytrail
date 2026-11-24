@@ -14,9 +14,12 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 /**
  * @property int $id
+ * @property string $attachable_type
+ * @property int $attachable_id
  * @property string|null $label
  * @property string|null $phase
  * @property int|null $area_room_id
+ * @property int|null $replaces_link_id
  * @property \Illuminate\Support\Carbon|null $taken_at
  * @property-read EvidenceRecord $evidenceRecord
  * @property-read AreaRoom|null $areaRoom

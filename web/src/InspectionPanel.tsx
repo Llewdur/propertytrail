@@ -1,5 +1,6 @@
 import { Button, Card } from '@zekini/ui';
 import { useCallback, useEffect, useState } from 'react';
+import ItemPhotos, { type ItemPhoto } from './ItemPhotos';
 
 type Condition = 'excellent' | 'good' | 'fair' | 'poor' | 'damaged';
 
@@ -11,7 +12,13 @@ const CONDITIONS: { key: Condition; label: string; className: string }[] = [
     { key: 'damaged', label: 'Damaged', className: 'bg-red-600 text-white' },
 ];
 
-type InspectionItem = { id: number | null; label: string; condition: Condition | null; note: string | null };
+type InspectionItem = {
+    id: number | null;
+    label: string;
+    condition: Condition | null;
+    note: string | null;
+    photos?: ItemPhoto[];
+};
 
 type InspectionSection = { id: number; title: string; saved_at: string | null; items: InspectionItem[] };
 
@@ -42,6 +49,7 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
     const [newPropertyId, setNewPropertyId] = useState<number | null>(null);
     const [newPhase, setNewPhase] = useState<'incoming' | 'outgoing' | 'interim'>('incoming');
     const [drafts, setDrafts] = useState<InspectionItem[]>([]);
+    const [photoMap, setPhotoMap] = useState<Record<number, ItemPhoto[]>>({});
     const [error, setError] = useState<string | null>(null);
     const [submitErrors, setSubmitErrors] = useState<string[]>([]);
 
@@ -143,6 +151,32 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
 
         const payload = (await response.json()) as { data: Inspection };
         setInspections((current) => current.map((inspection) => (inspection.id === payload.data.id ? payload.data : inspection)));
+    }
+
+    async function reloadSelected(): Promise<void> {
+        if (selectedId === null) {
+            return;
+        }
+
+        const response = await fetch(`${apiBase}/inspections/${selectedId}`, { headers: headers() });
+
+        if (!response.ok) {
+            return;
+        }
+
+        // Only photos are refreshed; replacing the inspection would reset unsaved room edits.
+        const payload = (await response.json()) as { data: Inspection };
+        const fresh: Record<number, ItemPhoto[]> = {};
+
+        for (const section of payload.data.sections) {
+            for (const item of section.items) {
+                if (item.id !== null) {
+                    fresh[item.id] = item.photos ?? [];
+                }
+            }
+        }
+
+        setPhotoMap((current) => ({ ...current, ...fresh }));
     }
 
     async function submitInspection(): Promise<void> {
@@ -277,6 +311,16 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
                                 disabled={!editable}
                                 onChange={(event) => updateItem(index, { note: event.target.value })}
                             />
+                            {item.id !== null && (
+                                <ItemPhotos
+                                    apiBase={apiBase}
+                                    headers={headers}
+                                    itemId={item.id}
+                                    photos={photoMap[item.id] ?? item.photos ?? []}
+                                    editable={editable}
+                                    onChanged={() => void reloadSelected()}
+                                />
+                            )}
                         </div>
                     ))}
                     {editable && (

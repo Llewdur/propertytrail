@@ -13,7 +13,7 @@ final class UploadEvidenceRequest extends FormRequest
     {
         return [
             'file' => ['required', 'file', 'max:10240'],
-            'attachable_type' => ['required', 'string', 'in:property,room,lease'],
+            'attachable_type' => ['required', 'string', 'in:property,room,lease,inspection_item'],
             'attachable_id' => ['required', 'integer'],
             'label' => ['sometimes', 'nullable', 'string', 'max:255'],
             'phase' => ['required_if:attachable_type,lease', 'nullable', 'string', 'in:incoming,outgoing,interim'],

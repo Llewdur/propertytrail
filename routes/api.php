@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\AreaRoomController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EvidenceController;
+use App\Http\Controllers\Api\EvidenceDownloadController;
 use App\Http\Controllers\Api\InspectionController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
@@ -38,7 +39,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     Route::get('evidence', [EvidenceController::class, 'index']);
     Route::post('evidence/upload', [EvidenceController::class, 'upload']);
-    Route::get('evidence/{evidence}', [EvidenceController::class, 'show']);
+    Route::get('evidence/{evidence}', [EvidenceController::class, 'show'])->whereNumber('evidence');
+    Route::get('evidence/{evidence}/download', EvidenceDownloadController::class)->whereNumber('evidence');
     Route::get('leases/{lease}', [LeaseController::class, 'show']);
 
     Route::get('inspections', [InspectionController::class, 'index']);

@@ -7,12 +7,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UploadEvidenceRequest;
 use App\Models\AreaRoom;
+use App\Models\InspectionItem;
 use App\Models\Lease;
 use App\Models\Property;
-use App\Repositories\AreaRoomRepository;
 use App\Repositories\EvidenceRepository;
-use App\Repositories\LeaseRepository;
-use App\Repositories\PropertyRepository;
+use App\Services\AttachableResolver;
 use App\Services\EvidenceIngestionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\UploadedFile;
@@ -24,14 +23,13 @@ final class EvidenceController extends Controller
         'property' => Property::class,
         'room' => AreaRoom::class,
         'lease' => Lease::class,
+        'inspection_item' => InspectionItem::class,
     ];
 
     public function __construct(
         private readonly EvidenceIngestionService $ingestion,
         private readonly EvidenceRepository $evidence,
-        private readonly PropertyRepository $properties,
-        private readonly AreaRoomRepository $rooms,
-        private readonly LeaseRepository $leases,
+        private readonly AttachableResolver $attachables,
     ) {}
 
     public function index(): JsonResponse
@@ -63,25 +61,15 @@ final class EvidenceController extends Controller
         }
 
         $type = self::ATTACHABLE_TYPES[$data['attachable_type']];
-        $exists = match ($type) {
-            Property::class => $this->properties->find((int) $data['attachable_id']) !== null,
-            AreaRoom::class => $this->rooms->find((int) $data['attachable_id']) !== null,
-            Lease::class => $this->leases->find((int) $data['attachable_id']) !== null,
-        };
 
-        if (!$exists) {
+        if (!$this->attachables->exists($type, (int) $data['attachable_id'])) {
             return response()->json(['message' => 'Attachable record not found.'], Response::HTTP_NOT_FOUND);
         }
 
-        if ($type === Lease::class && is_numeric($data['area_room_id'] ?? null)) {
-            $room = $this->rooms->find((int) $data['area_room_id']);
-            $lease = $this->leases->find((int) $data['attachable_id']);
+        $refusal = $this->attachables->refusal($type, (int) $data['attachable_id'], $data);
 
-            if ($room === null || $room->property_id !== $lease?->property_id) {
-                return response()->json([
-                    'message' => 'Room does not belong to the lease property.',
-                ], Response::HTTP_UNPROCESSABLE_ENTITY);
-            }
+        if ($refusal !== null) {
+            return response()->json(['message' => $refusal], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         /** @var array<string, mixed> $context */

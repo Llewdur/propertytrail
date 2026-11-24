@@ -283,6 +283,18 @@ message = '''Returned type `array{'progress': array{'items_rated': non-negative-
 count = 1
 
 [[issues]]
+file = "app/Models/Inspection.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 1
+
+[[issues]]
+file = "app/Models/Inspection.php"
+code = "mixed-property-access"
+message = "Attempting to access a property on a non-object type (`mixed`)."
+count = 3
+
+[[issues]]
 file = "app/Models/InspectionSection.php"
 code = "invalid-return-statement"
 message = 'Invalid return type for function `App\Models\InspectionSection::items`: expected `Illuminate\Database\Eloquent\Relations\HasMany<App\Models\InspectionItem, app\models\inspectionsection>`, but found `$this(Illuminate\Database\Query\Builder)`.'
