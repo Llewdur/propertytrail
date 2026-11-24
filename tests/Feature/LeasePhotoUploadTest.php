@@ -354,6 +354,11 @@ it('never silently replaces evidence: a corrected photo is a new record linked t
 });
 
 it('rejects a lease upload without a phase or with a room from another property', function (): void {
+    $settings = $this->organisation->settings;
+    $settings['plan'] = 'starter';
+    $this->organisation->settings = $settings;
+    $this->organisation->save();
+
     ($this->client)()
         ->postJson('/api/v1/evidence/upload', [
             'file' => UploadedFile::fake()->createWithContent('no-phase.jpg', 'no-phase-bytes'),

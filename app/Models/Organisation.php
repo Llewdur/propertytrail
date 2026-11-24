@@ -8,6 +8,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property int $id
+ * @property string $uuid
+ * @property string $name
+ * @property array<string, mixed>|null $settings
+ * @property string|null $accounting_customer_id
+ */
 final class Organisation extends Model
 {
     use HasFactory;
@@ -21,6 +28,7 @@ final class Organisation extends Model
         'currency',
         'timezone',
         'settings',
+        'accounting_customer_id',
     ];
 
     /** @var array<string, string> */

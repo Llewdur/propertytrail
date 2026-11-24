@@ -13,6 +13,7 @@ use App\Models\InspectionReport;
 use App\Models\InspectionSection;
 use App\Models\InspectionSignature;
 use App\Models\Organisation;
+use App\Services\Billing\EntitlementService;
 use App\Support\Legal;
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -27,6 +28,7 @@ final class ReportService
         private readonly StorageAdapterInterface $storage,
         private readonly ReportBrandingService $branding,
         private readonly DeliveryService $deliveries,
+        private readonly EntitlementService $billing,
     ) {}
 
     public function findFor(Inspection $inspection): ?InspectionReport
@@ -108,6 +110,8 @@ final class ReportService
         $inspection->payload();
 
         $organisation = Organisation::query()->find($inspection->organisation_id);
+        $this->billing->recordReportUsage($organisation, $inspection->id);
+
         $signatures = $inspection->signatures->keyBy('party');
 
         $rooms = $inspection->sections->map(fn(InspectionSection $section): array => [
