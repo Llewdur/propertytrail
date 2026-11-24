@@ -27,6 +27,7 @@ final class SigningService
 
     public function __construct(
         private readonly CurrentOrganisation $currentOrganisation,
+        private readonly ReportService $reports,
     ) {}
 
     /**
@@ -114,7 +115,7 @@ final class SigningService
     ): InspectionSignature {
         \App\Support\SignatureImage::assertValid($image);
 
-        return DB::transaction(function () use ($token, $signerName, $image, $ip): InspectionSignature {
+        $signature = DB::transaction(function () use ($token, $signerName, $image, $ip): InspectionSignature {
             $claimed = SigningToken::query()
                 ->whereKey($token->id)
                 ->whereNull('used_at')
@@ -141,6 +142,10 @@ final class SigningService
 
             return $signature;
         });
+
+        $this->lockReport($signature->inspection()->firstOrFail());
+
+        return $signature;
     }
 
     public function signInApp(
@@ -155,7 +160,7 @@ final class SigningService
         $this->assertSignable($inspection, $party);
         \App\Support\SignatureImage::assertValid($image);
 
-        return DB::transaction(
+        $signature = DB::transaction(
             fn(): InspectionSignature => $this->store(
                 $inspection,
                 $party,
@@ -166,6 +171,20 @@ final class SigningService
                 $ip,
             ),
         );
+
+        $this->lockReport($inspection);
+
+        return $signature;
+    }
+
+    /** A report failure must never undo a saved signature; the lock is retried when the report is next requested. */
+    private function lockReport(Inspection $inspection): void
+    {
+        try {
+            $this->reports->lockWhenFullySigned($inspection);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
     }
 
     private function store(

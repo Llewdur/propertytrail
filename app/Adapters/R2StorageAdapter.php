@@ -19,7 +19,9 @@ final class R2StorageAdapter implements StorageAdapterInterface
 
     public function put(string $path, string $contents): void
     {
-        $this->disk->put($path, $contents);
+        if ($this->disk->put($path, $contents) === false) {
+            throw new \RuntimeException('Storage write failed for ' . $path);
+        }
     }
 
     public function get(string $path): ?string

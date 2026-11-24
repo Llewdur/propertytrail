@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\EvidenceDownloadController;
 use App\Http\Controllers\Api\InspectionController;
+use App\Http\Controllers\Api\InspectionReportController;
 use App\Http\Controllers\Api\InspectionSignatureController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
@@ -68,6 +69,21 @@ Route::middleware('auth:sanctum')->group(function (): void {
     ])->whereNumber('inspection');
     Route::delete('inspections/{inspection}/signing-links', [
         InspectionSignatureController::class,
+        'revokeLinks',
+    ])->whereNumber('inspection');
+    Route::get('inspections/{inspection}/report', [InspectionReportController::class, 'show'])->whereNumber(
+        'inspection',
+    );
+    Route::get('inspections/{inspection}/report/download', [
+        InspectionReportController::class,
+        'download',
+    ])->whereNumber('inspection');
+    Route::post('inspections/{inspection}/report/link', [
+        InspectionReportController::class,
+        'issueLink',
+    ])->whereNumber('inspection');
+    Route::delete('inspections/{inspection}/report/link', [
+        InspectionReportController::class,
         'revokeLinks',
     ])->whereNumber('inspection');
 
