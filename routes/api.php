@@ -11,9 +11,12 @@ use App\Http\Controllers\Api\InspectionController;
 use App\Http\Controllers\Api\InspectionDeliveryController;
 use App\Http\Controllers\Api\InspectionReportController;
 use App\Http\Controllers\Api\InspectionSignatureController;
+use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
 use App\Http\Controllers\Api\OrganisationController;
+use App\Http\Controllers\Api\PilotEnquiryController;
+use App\Http\Controllers\Api\PropertyAssignmentController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\PublicSigningController;
 use App\Http\Controllers\Api\SystemController;
@@ -28,18 +31,37 @@ Route::middleware('throttle:30,1')->group(function (): void {
     Route::post('billing/webhook', [BillingController::class, 'webhook']);
 });
 
+Route::middleware('throttle:6,1')->group(function (): void {
+    Route::post('pilot-enquiries', [PilotEnquiryController::class, 'store']);
+});
+
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('organisations', [OrganisationController::class, 'index']);
     Route::post('organisations', [OrganisationController::class, 'store']);
     Route::post('organisations/switch', [OrganisationController::class, 'switch']);
     Route::put('organisations/{organisation}', [OrganisationController::class, 'update']);
     Route::post('organisations/{organisation}/logo', [OrganisationController::class, 'uploadLogo']);
+    Route::get('organisations/{organisation}/members', [OrganisationController::class, 'members'])->whereNumber(
+        'organisation',
+    );
+    Route::post('organisations/{organisation}/invitations', [
+        OrganisationController::class,
+        'invitations',
+    ])->whereNumber('organisation');
+    Route::post('invitations/{token}/accept', [InvitationController::class, 'accept'])->where('token', '[A-Za-z0-9]+');
 
     Route::get('properties', [PropertyController::class, 'index']);
     Route::post('properties', [PropertyController::class, 'store']);
     Route::get('properties/{property}', [PropertyController::class, 'show']);
     Route::put('properties/{property}', [PropertyController::class, 'update']);
     Route::delete('properties/{property}', [PropertyController::class, 'destroy']);
+    Route::post('properties/{property}/assignments', [PropertyAssignmentController::class, 'store'])->whereNumber(
+        'property',
+    );
+    Route::delete('properties/{property}/assignments/{user}', [
+        PropertyAssignmentController::class,
+        'destroy',
+    ])->whereNumber(['property', 'user']);
 
     Route::get('properties/{property}/rooms', [AreaRoomController::class, 'index']);
     Route::post('properties/{property}/rooms', [AreaRoomController::class, 'store']);

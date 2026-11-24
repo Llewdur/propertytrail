@@ -115,7 +115,7 @@ it('signs out through the web session route', function (): void {
 it('refuses domain writes when no organisation is resolved', function (): void {
     ['organisation' => $organisation, 'user' => $user] = tenantUser('no-tenant');
     $second = app(\App\Factories\OrganisationWriteFactory::class)->create(['name' => 'Second']);
-    app(UserWriteFactory::class)->attachToOrganisation($user, $second, 'member');
+    app(UserWriteFactory::class)->attachToOrganisation($user, $second, 'viewer');
 
     actingAs($user)
         ->postJson('/api/v1/properties', propertyPayload())

@@ -43,18 +43,6 @@ message = "Use of the shorthand ternary operator."
 count = 3
 
 [[issues]]
-file = "app/Http/Controllers/Controller.php"
-code = "no-empty-comment"
-message = "Empty comments are not allowed."
-count = 1
-
-[[issues]]
-file = "app/Http/Controllers/Controller.php"
-code = "strict-types"
-message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
-count = 1
-
-[[issues]]
 file = "app/Models/AuditLog.php"
 code = "prefer-casts-method"
 message = "Define model casts in the `casts()` method instead of the `$casts` property."
