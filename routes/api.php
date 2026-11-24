@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\InspectionController;
 use App\Http\Controllers\Api\InspectionDeliveryController;
 use App\Http\Controllers\Api\InspectionReportController;
 use App\Http\Controllers\Api\InspectionSignatureController;
+use App\Http\Controllers\Api\InspectionTemplateController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
@@ -124,6 +125,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
         InspectionReportController::class,
         'revokeLinks',
     ])->whereNumber('inspection');
+
+    Route::get('inspection-templates', [InspectionTemplateController::class, 'index']);
+    Route::get('inspection-templates/{template}', [InspectionTemplateController::class, 'show'])->whereNumber(
+        'template',
+    );
+    Route::put('inspection-templates/{template}', [InspectionTemplateController::class, 'update'])->whereNumber(
+        'template',
+    );
 
     Route::get('audit-logs', [AuditLogController::class, 'index']);
     Route::get('billing/entitlement', [BillingController::class, 'show']);

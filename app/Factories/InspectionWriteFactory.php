@@ -12,7 +12,7 @@ use App\Models\Organisation;
 use App\Models\Property;
 use App\Models\UsageRecord;
 use App\Services\Billing\EntitlementService;
-use App\Support\InspectionItemDefaults;
+use App\Services\InspectionTemplateService;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -20,6 +20,7 @@ final class InspectionWriteFactory
 {
     public function __construct(
         private readonly EntitlementService $billing,
+        private readonly InspectionTemplateService $templates,
     ) {}
 
     public function create(Property $property, string $phase, ?Lease $lease, ?string $overallNotes): Inspection
@@ -55,11 +56,14 @@ final class InspectionWriteFactory
 
                 $itemSort = 0;
 
-                foreach (InspectionItemDefaults::forRoomType($room->room_type) as $label) {
+                foreach ($this->templates->itemsForRoomType(
+                    $organisation,
+                    (string) $room->room_type,
+                ) as $templateItem) {
                     InspectionItem::query()->create([
                         'organisation_id' => $property->organisation_id,
                         'inspection_section_id' => $section->id,
-                        'label' => $label,
+                        'label' => $templateItem->label,
                         'source' => InspectionItem::SOURCE_DEFAULT,
                         'sort_order' => $itemSort++,
                     ]);
