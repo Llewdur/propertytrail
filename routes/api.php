@@ -30,6 +30,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('organisations', [OrganisationController::class, 'store']);
     Route::post('organisations/switch', [OrganisationController::class, 'switch']);
     Route::put('organisations/{organisation}', [OrganisationController::class, 'update']);
+    Route::post('organisations/{organisation}/logo', [OrganisationController::class, 'uploadLogo']);
 
     Route::get('properties', [PropertyController::class, 'index']);
     Route::post('properties', [PropertyController::class, 'store']);
