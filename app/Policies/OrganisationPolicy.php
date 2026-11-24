@@ -13,4 +13,9 @@ final class OrganisationPolicy
     {
         return $user->isAdminIn($organisation);
     }
+
+    public function manageTemplates(User $user, Organisation $organisation): bool
+    {
+        return $user->isAdminIn($organisation);
+    }
 }

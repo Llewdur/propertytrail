@@ -110,12 +110,6 @@ count = 1
 
 [[issues]]
 file = "app/Factories/InspectionWriteFactory.php"
-code = "mixed-argument"
-message = 'Invalid argument type for argument #1 of `App\Support\InspectionItemDefaults::forRoomType`: expected `string`, but found `mixed`.'
-count = 1
-
-[[issues]]
-file = "app/Factories/InspectionWriteFactory.php"
 code = "mixed-return-statement"
 message = 'Could not infer a precise return type for function `App\Factories\InspectionWriteFactory::create`. Saw type `mixed`.'
 count = 1

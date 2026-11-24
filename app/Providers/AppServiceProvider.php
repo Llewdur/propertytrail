@@ -29,6 +29,7 @@ use App\Repositories\LeaseRepository;
 use App\Repositories\OrganisationRepository;
 use App\Repositories\PropertyRepository;
 use App\Repositories\UserRepository;
+use App\Services\InspectionTemplateService;
 use App\Support\Tenancy\CurrentOrganisation;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Socialite\Facades\Socialite;
@@ -53,6 +54,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(AuditLogRepository::class);
         $this->app->singleton(UserRepository::class);
         $this->app->singleton(InspectionRepository::class);
+        $this->app->singleton(InspectionTemplateService::class);
 
         $this->app->singleton(OrganisationWriteFactory::class);
         $this->app->singleton(PropertyWriteFactory::class);
