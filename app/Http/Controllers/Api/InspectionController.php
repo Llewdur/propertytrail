@@ -78,7 +78,7 @@ final class InspectionController extends Controller
             return response()->json(['message' => 'Inspection not found.'], Response::HTTP_NOT_FOUND);
         }
 
-        return response()->json(['data' => $model->payload()]);
+        return response()->json(['data' => $model->payload(true)]);
     }
 
     public function updateSection(SaveInspectionSectionRequest $request, int $inspection, int $section): JsonResponse

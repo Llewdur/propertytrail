@@ -13,13 +13,15 @@ final class InspectionRepository
     public function all(): Collection
     {
         return Inspection::query()
-            ->with(['sections.items', 'property:id,name', 'lease:id,lease_reference'])
+            ->with(['sections.items', 'property:id,name', 'lease:id,lease_reference', 'signatures'])
             ->orderByDesc('id')
             ->get();
     }
 
     public function find(int $id): ?Inspection
     {
-        return Inspection::query()->with(['sections.items', 'property:id,name', 'lease:id,lease_reference'])->find($id);
+        return Inspection::query()
+            ->with(['sections.items', 'property:id,name', 'lease:id,lease_reference', 'signatures'])
+            ->find($id);
     }
 }

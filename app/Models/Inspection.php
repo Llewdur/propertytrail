@@ -74,31 +74,90 @@ final class Inspection extends Model
         return $this->hasMany(InspectionSection::class)->orderBy('sort_order')->orderBy('id');
     }
 
+    /** @return HasMany<InspectionSignature, $this> */
+    public function signatures(): HasMany
+    {
+        return $this->hasMany(InspectionSignature::class)->orderBy('signed_at');
+    }
+
     public function isDraft(): bool
     {
         return $this->status === self::STATUS_DRAFT;
     }
 
-    /** @return array<string, mixed> */
-    public function payload(): array
+    /**
+     * @param array<array-key, int> $itemIds
+     * @return array<array-key, list<array<string, mixed>>>
+     */
+    private function itemPhotos(array $itemIds): array
     {
-        $this->loadMissing(['sections.items', 'property:id,name', 'lease:id,lease_reference']);
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $links = EvidenceLink::query()
+            ->with('evidenceRecord')
+            ->where('attachable_type', new InspectionItem()->getMorphClass())
+            ->whereIn('attachable_id', $itemIds)
+            ->orderBy('id')
+            ->get();
+
+        $replaced = $links->pluck('replaces_link_id')->filter()->all();
+        $grouped = [];
+
+        foreach ($links as $link) {
+            $grouped[$link->attachable_id][] = [
+                'link_id' => $link->id,
+                'evidence_id' => $link->evidenceRecord->id,
+                'caption' => $link->label,
+                'file_name' => $link->evidenceRecord->file_name,
+                'mime_type' => $link->evidenceRecord->mime_type,
+                'taken_at' => $link->taken_at?->toIso8601String(),
+                'replaces_link_id' => $link->replaces_link_id,
+                'superseded' => in_array($link->id, $replaced, true),
+            ];
+        }
+
+        return $grouped;
+    }
+
+    /** @return array<string, mixed> */
+    public function payload(bool $withSignatureImages = false): array
+    {
+        $this->loadMissing(['sections.items', 'property:id,name', 'lease:id,lease_reference', 'signatures']);
 
         /** @var Collection<int, InspectionItem> $items */
         $items = $this->sections->flatMap(static fn(InspectionSection $section): Collection => $section->items);
 
-        return $this->toArray()
-        + [
-            'progress' => [
-                'sections_total' => $this->sections->count(),
-                'sections_saved' => $this->sections
-                    ->filter(static fn(InspectionSection $section): bool => $section->saved_at !== null)
-                    ->count(),
-                'items_total' => $items->count(),
-                'items_rated' => $items
-                    ->filter(static fn(InspectionItem $item): bool => $item->condition !== null)
-                    ->count(),
-            ],
-        ];
+        $photos = $this->itemPhotos(
+            $items
+                ->pluck('id')
+                ->map(static fn(mixed $id): int => (int) $id)
+                ->all(),
+        );
+
+        foreach ($items as $item) {
+            $item->setRelation('photos', new Collection($photos[$item->id] ?? []));
+        }
+
+        $signatures = $this->signatures->map(
+            static fn(InspectionSignature $signature): array => $signature->payload($withSignatureImages),
+        )->all();
+
+        return (
+            [...$this->toArray(), 'signatures' => $signatures]
+            + [
+                'progress' => [
+                    'sections_total' => $this->sections->count(),
+                    'sections_saved' => $this->sections
+                        ->filter(static fn(InspectionSection $section): bool => $section->saved_at !== null)
+                        ->count(),
+                    'items_total' => $items->count(),
+                    'items_rated' => $items
+                        ->filter(static fn(InspectionItem $item): bool => $item->condition !== null)
+                        ->count(),
+                ],
+            ]
+        );
     }
 }

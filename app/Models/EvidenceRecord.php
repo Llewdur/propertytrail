@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $file_name
  * @property string $mime_type
  * @property int $file_size_bytes
+ * @property string $storage_path
  * @property \Illuminate\Support\Carbon|null $captured_at
  */
 final class EvidenceRecord extends Model
