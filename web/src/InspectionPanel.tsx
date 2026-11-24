@@ -200,7 +200,12 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
         const response = await send('POST', `${apiBase}/inspections`, { property_id: newPropertyId, phase: newPhase });
 
         if (!response.ok) {
-            setError('Could not start the inspection.');
+            const body = (await response.json().catch(() => null)) as {
+                message?: string;
+                code?: string;
+            } | null;
+            const message = body?.message ?? 'Could not start the inspection.';
+            setError(body?.code === 'plan_limit' ? `${message} View “Plan and usage” below to upgrade.` : message);
             return;
         }
 

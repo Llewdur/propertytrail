@@ -4,6 +4,7 @@ import { AuthPanel } from './AuthPanel';
 import InspectionPanel from './InspectionPanel';
 import LeasePhotosPanel from './LeasePhotosPanel';
 import OrganisationSwitcher from './OrganisationSwitcher';
+import PlanPanel from './PlanPanel';
 import { ProfileMenu } from './ProfileMenu';
 import SetupPanel from './SetupPanel';
 import { fetchMe, firstError, logout, type AuthUser, type Bootstrap } from './auth';
@@ -162,8 +163,19 @@ export default function App() {
                                 >
                                     Upload evidence
                                 </Button>
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth' })}
+                                >
+                                    Plan and usage
+                                </Button>
                             </div>
                         </Card>
+
+                        <PlanPanel
+                            apiBase={bootstrap.apiBase ?? '/api/v1'}
+                            organisationId={bootstrap.currentOrganisationId ?? null}
+                        />
 
                         <SetupPanel
                             apiBase={bootstrap.apiBase ?? '/api/v1'}

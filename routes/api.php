@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\AreaRoomController;
 use App\Http\Controllers\Api\AuditLogController;
+use App\Http\Controllers\Api\BillingController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\EvidenceDownloadController;
 use App\Http\Controllers\Api\InspectionController;
@@ -24,6 +25,7 @@ Route::get('version', [SystemController::class, 'version']);
 Route::middleware('throttle:30,1')->group(function (): void {
     Route::get('sign/{token}', [PublicSigningController::class, 'show']);
     Route::post('sign/{token}', [PublicSigningController::class, 'sign']);
+    Route::post('billing/webhook', [BillingController::class, 'webhook']);
 });
 
 Route::middleware('auth:sanctum')->group(function (): void {
@@ -102,4 +104,5 @@ Route::middleware('auth:sanctum')->group(function (): void {
     ])->whereNumber('inspection');
 
     Route::get('audit-logs', [AuditLogController::class, 'index']);
+    Route::get('billing/entitlement', [BillingController::class, 'show']);
 });

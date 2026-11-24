@@ -37,6 +37,10 @@ return [
     'accounting' => [
         'url' => env('ACCOUNTING_SERVICE_URL', 'http://127.0.0.1:8093'),
         'token' => env('ACCOUNTING_SERVICE_TOKEN'),
+        'client_id' => env('ACCOUNTING_SERVICE_CLIENT_ID'),
+        'client_secret' => env('ACCOUNTING_SERVICE_CLIENT_SECRET'),
+        'webhook_secret' => env('ACCOUNTING_WEBHOOK_SECRET'),
+        'customer_email' => env('ACCOUNTING_CUSTOMER_EMAIL', env('MAIL_FROM_ADDRESS', 'no-reply@propertytrail.co.za')),
     ],
 
     'whatsapp' => [

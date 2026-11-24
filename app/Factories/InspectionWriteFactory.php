@@ -8,15 +8,30 @@ use App\Models\Inspection;
 use App\Models\InspectionItem;
 use App\Models\InspectionSection;
 use App\Models\Lease;
+use App\Models\Organisation;
 use App\Models\Property;
+use App\Models\UsageRecord;
+use App\Services\Billing\EntitlementService;
 use App\Support\InspectionItemDefaults;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 final class InspectionWriteFactory
 {
+    public function __construct(
+        private readonly EntitlementService $billing,
+    ) {}
+
     public function create(Property $property, string $phase, ?Lease $lease, ?string $overallNotes): Inspection
     {
-        return DB::transaction(static function () use ($property, $phase, $lease, $overallNotes): Inspection {
+        return DB::transaction(function () use ($property, $phase, $lease, $overallNotes): Inspection {
+            $organisation = Organisation::query()->find($property->organisation_id);
+            if (!$organisation instanceof Organisation) {
+                throw new RuntimeException('The property has no organisation.');
+            }
+
+            $this->billing->assertCan('inspection', $organisation);
+
             $inspection = Inspection::query()->create([
                 'organisation_id' => $property->organisation_id,
                 'property_id' => $property->id,
@@ -50,6 +65,8 @@ final class InspectionWriteFactory
                     ]);
                 }
             }
+
+            $this->billing->recordUsage(UsageRecord::KIND_INSPECTION, $organisation, $inspection->id, 'inspection');
 
             return $inspection;
         });
