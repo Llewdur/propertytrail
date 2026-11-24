@@ -11,8 +11,8 @@ final class ReportPlan
     /** @return array{watermark: bool, custom_logo: bool} */
     public static function rulesFor(?Organisation $organisation): array
     {
-        $plans = (array) config('reports.plans');
-        $default = (string) config('reports.default_plan');
+        $plans = (array) config('plans.plans');
+        $default = (string) config('plans.default_plan');
         $plan = $organisation?->settings['plan'] ?? $default;
         $rules = $plans[is_string($plan) ? $plan : $default] ?? $plans[$default] ?? [];
 

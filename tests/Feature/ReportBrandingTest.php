@@ -60,6 +60,14 @@ it('stamps a free-plan report with the watermark and no custom logo', function (
     expect($branding['watermark'])->toBe(config('reports.watermark_text'))->and($branding['logo_data_uri'])->toBeNull();
 });
 
+it('falls back to the free plan when an organisation has an unknown plan', function (): void {
+    $this->organisation->forceFill(['settings' => ['plan' => 'retired-plan']])->save();
+
+    $branding = app(ReportBrandingService::class)->forOrganisation($this->organisation->refresh());
+
+    expect($branding['watermark'])->toBe(config('reports.watermark_text'))->and($branding['logo_data_uri'])->toBeNull();
+});
+
 it('puts the logo on a paid-plan report and removes the watermark', function (): void {
     ($this->asOwner)()->post(
         "/api/v1/organisations/{$this->organisation->id}/logo",
