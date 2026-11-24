@@ -73,7 +73,7 @@
 #
 # ⚠️ ZST-313: `VAR=${A:-'...'}`, no outer double quotes around the whole
 # expansion, is a plain assignment — bash never word-splits or globs it
-# regardless of the default's default's quoting, so the single-quoted default's
+# regardless of the default's quoting, so the single-quoted default's
 # quote-removal still applies correctly, letting `.githooks/config`
 # override the pattern the usual way.
 ZEKINI_FRONTEND_PATTERN=${ZEKINI_FRONTEND_PATTERN:-'^(web/|resources/|app/|routes/|config/|tests/)|(^|/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig[^/]*\.json)$|(^|/)(vite|tailwind|postcss|vitest|eslint)\.config\.|(^|/)bin/(reap-test-orphans|test)$'}
