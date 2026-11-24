@@ -21,6 +21,7 @@ final class RequireResolvedOrganisationForWrites
         if (
             !in_array($request->getRealMethod(), ['GET', 'HEAD', 'OPTIONS'], true)
             && !$request->is('api/v1/auth/*')
+            && !$request->is('api/v1/sign/*')
             && $this->currentOrganisation->id() === null
         ) {
             return response()->json([

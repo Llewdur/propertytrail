@@ -181,6 +181,18 @@ message = 'Invalid argument type for argument #1 of `App\Repositories\UserReposi
 count = 1
 
 [[issues]]
+file = "app/Http/Controllers/Api/PublicSigningController.php"
+code = "mixed-property-access"
+message = "Attempting to access a property on a non-object type (`mixed`)."
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/PublicSigningController.php"
+code = "non-documented-property"
+message = 'Ambiguous property access: $property on class `App\Models\Inspection`.'
+count = 1
+
+[[issues]]
 file = "app/Http/Controllers/Api/SystemController.php"
 code = "mixed-assignment"
 message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
@@ -278,21 +290,33 @@ count = 1
 
 [[issues]]
 file = "app/Models/Inspection.php"
-code = "less-specific-return-statement"
-message = '''Returned type `array{'progress': array{'items_rated': non-negative-int, 'items_total': non-negative-int, 'sections_saved': non-negative-int, 'sections_total': non-negative-int}, ...}` is less specific than the declared return type `array<string, mixed>` for function `App\Models\Inspection::payload`.'''
+code = "invalid-return-statement"
+message = 'Invalid return type for function `App\Models\Inspection::signatures`: expected `Illuminate\Database\Eloquent\Relations\HasMany<App\Models\InspectionSignature, app\models\inspection>`, but found `$this(Illuminate\Database\Query\Builder)`.'
+count = 1
+
+[[issues]]
+file = "app/Models/Inspection.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
 count = 1
 
 [[issues]]
 file = "app/Models/Inspection.php"
 code = "mixed-method-access"
 message = "Attempting to access a method on a non-object type (`mixed`)."
-count = 1
+count = 3
 
 [[issues]]
 file = "app/Models/Inspection.php"
 code = "mixed-property-access"
 message = "Attempting to access a property on a non-object type (`mixed`)."
 count = 3
+
+[[issues]]
+file = "app/Models/Inspection.php"
+code = "non-documented-property"
+message = 'Ambiguous property access: $signatures on class `App\Models\Inspection`.'
+count = 1
 
 [[issues]]
 file = "app/Models/InspectionSection.php"
@@ -496,4 +520,64 @@ count = 1
 file = "app/Services/InspectionService.php"
 code = "property-type-coercion"
 message = 'A value of a less specific type `Carbon\CarbonInterface` is being assigned to property `$$submitted_at` (Illuminate\Support\Carbon|null).'
+count = 1
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "less-specific-nested-return-statement"
+message = '''Returned type `array{'outcome': string('expired')|string('ok')|string('revoked')|string('unknown')|string('used'), 'token': mixed}` is less specific than the declared return type `array{'outcome': string, 'token': App\Models\SigningToken|null}` for function `App\Services\SigningService::resolveLink` due to nested 'mixed'.'''
+count = 1
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Services\SigningService::logAccess`: expected `App\Models\SigningToken|null`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Support\Tenancy\CurrentOrganisation::set`: expected `int`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 3
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "mixed-property-access"
+message = "Attempting to access a property on a non-object type (`nonnull`)."
+count = 4
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Services\SigningService::issueLink`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Services\SigningService::signByLink`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Services\SigningService::signInApp`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/SigningService.php"
+code = "non-documented-method"
+message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
 count = 1
