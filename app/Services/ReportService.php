@@ -25,6 +25,7 @@ final class ReportService
 
     public function __construct(
         private readonly StorageAdapterInterface $storage,
+        private readonly ReportBrandingService $branding,
     ) {}
 
     public function findFor(Inspection $inspection): ?InspectionReport
@@ -118,6 +119,7 @@ final class ReportService
             'tenant' => $signatures->get(InspectionSignature::PARTY_TENANT),
             'rooms' => $rooms,
             'footer' => Legal::REPORT_DISCLAIMER,
+            'branding' => $this->branding->forOrganisation($organisation),
             'generatedAt' => now()->toIso8601String(),
         ])->render();
 

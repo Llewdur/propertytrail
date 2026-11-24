@@ -20,13 +20,22 @@ final class OrganisationWriteFactory
             'status' => 'active',
             'currency' => $data['currency'] ?? 'ZAR',
             'timezone' => $data['timezone'] ?? 'Africa/Johannesburg',
-            'settings' => $data['settings'] ?? null,
+            'settings' => array_key_exists('settings', $data) && is_array($data['settings'])
+                ? array_diff_key($data['settings'], array_flip(['plan', 'branding']))
+                : null,
         ]);
     }
 
     /** @param array<string, mixed> $data */
     public function update(Organisation $organisation, array $data): Organisation
     {
+        if (is_array($data['settings'] ?? null)) {
+            $data['settings'] = array_merge($data['settings'], array_intersect_key(
+                $organisation->settings ?? [],
+                array_flip(['plan', 'branding']),
+            ));
+        }
+
         $organisation->fill($data)->save();
 
         return $organisation;

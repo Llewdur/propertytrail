@@ -10,8 +10,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreOrganisationRequest;
 use App\Http\Requests\SwitchOrganisationRequest;
 use App\Http\Requests\UpdateOrganisationRequest;
+use App\Http\Requests\UploadOrganisationLogoRequest;
 use App\Repositories\OrganisationRepository;
 use App\Repositories\UserRepository;
+use App\Services\ReportBrandingService;
 use App\Support\Tenancy\CurrentOrganisation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +27,7 @@ final class OrganisationController extends Controller
         private readonly UserRepository $userRepository,
         private readonly UserWriteFactory $userWriteFactory,
         private readonly CurrentOrganisation $currentOrganisation,
+        private readonly ReportBrandingService $branding,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -60,6 +63,19 @@ final class OrganisationController extends Controller
         $data = $request->validated();
 
         return response()->json(['data' => $this->factory->update($model, $data)]);
+    }
+
+    public function uploadLogo(UploadOrganisationLogoRequest $request, int $organisation): JsonResponse
+    {
+        $model = $this->organisations->find($organisation);
+
+        if ($model === null || !$this->userRepository->belongsToOrganisation($request->user(), $organisation)) {
+            return response()->json(['message' => 'Organisation not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $this->branding->storeLogo($model, $request->file('logo'));
+
+        return response()->json(['data' => $model->refresh()]);
     }
 
     public function switch(SwitchOrganisationRequest $request): JsonResponse
