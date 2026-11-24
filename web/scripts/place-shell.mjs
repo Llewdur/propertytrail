@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,4 +8,6 @@ const destination = resolve(projectRoot, 'resources/spa/index.html');
 
 mkdirSync(dirname(destination), { recursive: true });
 copyFileSync(source, destination);
+// The shell must be served by the controller (with bootstrap), never straight off disk.
+rmSync(source);
 console.log(`SPA shell placed at ${destination}`);
