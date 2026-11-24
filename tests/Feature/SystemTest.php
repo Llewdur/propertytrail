@@ -22,5 +22,5 @@ it('reports the application version', function (): void {
 });
 
 it('serves the SPA shell with bootstrap config', function (): void {
-    get('/')->assertOk()->assertSee('window.__PROPERTYTRAIL_BOOTSTRAP__', false)->assertSee('/spa/assets/', false);
+    get('/app')->assertOk()->assertSee('window.__PROPERTYTRAIL_BOOTSTRAP__', false)->assertSee('/spa/assets/', false);
 });

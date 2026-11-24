@@ -10,6 +10,8 @@ final class Legal
 
     public const TERMS_FILE = '.terms';
 
+    public const PRIVACY_FILE = '.privacy';
+
     public const REPORT_DISCLAIMER =
         "This report is intended as a record of the property's condition at the time of inspection. "
             . 'Both parties should retain a copy.';

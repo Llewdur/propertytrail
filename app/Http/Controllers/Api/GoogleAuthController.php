@@ -33,7 +33,7 @@ final class GoogleAuthController extends Controller
         try {
             $googleUser = Socialite::driver('google')->user();
         } catch (Throwable) {
-            return redirect('/?auth_error=google');
+            return redirect('/app?auth_error=google');
         }
 
         $user = User::query()->where('google_id', $googleUser->getId())->first();
@@ -66,6 +66,6 @@ final class GoogleAuthController extends Controller
             $this->users->acceptTerms($user, TermsAcceptanceSource::Social);
         }
 
-        return redirect('/');
+        return redirect('/app');
     }
 }

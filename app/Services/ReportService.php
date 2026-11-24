@@ -15,8 +15,6 @@ use App\Models\InspectionSignature;
 use App\Models\Organisation;
 use App\Services\Billing\EntitlementService;
 use App\Support\Legal;
-use Dompdf\Dompdf;
-use Dompdf\Options;
 use Illuminate\Support\Facades\DB;
 
 final class ReportService
@@ -29,6 +27,7 @@ final class ReportService
         private readonly ReportBrandingService $branding,
         private readonly DeliveryService $deliveries,
         private readonly EntitlementService $billing,
+        private readonly PdfRenderer $pdf,
     ) {}
 
     public function findFor(Inspection $inspection): ?InspectionReport
@@ -138,17 +137,7 @@ final class ReportService
             'generatedAt' => now()->toIso8601String(),
         ])->render();
 
-        $options = new Options();
-        $options->set('isRemoteEnabled', false);
-        $options->set('isPhpEnabled', false);
-        $options->set('defaultFont', 'DejaVu Sans');
-
-        $dompdf = new Dompdf($options);
-        $dompdf->setPaper('A4');
-        $dompdf->loadHtml($html);
-        $dompdf->render();
-
-        return (string) $dompdf->output();
+        return $this->pdf->render($html);
     }
 
     /** @return list<array{caption: string, data_uri: string}> */

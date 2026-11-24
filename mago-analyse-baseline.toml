@@ -805,12 +805,6 @@ message = 'Ambiguous property access: $storage_path on class `Illuminate\Databas
 count = 1
 
 [[issues]]
-file = "app/Services/ReportService.php"
-code = "redundant-cast"
-message = "Redundant cast to `(string)`: the expression already has this type."
-count = 1
-
-[[issues]]
 file = "app/Services/SigningService.php"
 code = "less-specific-nested-return-statement"
 message = '''Returned type `array{'outcome': string('expired')|string('ok')|string('revoked')|string('unknown')|string('used'), 'token': mixed}` is less specific than the declared return type `array{'outcome': string, 'token': App\Models\SigningToken|null}` for function `App\Services\SigningService::resolveLink` due to nested 'mixed'.'''
