@@ -1,6 +1,7 @@
 import { Button, Card } from '@zekini/ui';
 import { useCallback, useEffect, useState } from 'react';
 import ItemPhotos, { type ItemPhoto } from './ItemPhotos';
+import SignaturesPanel, { type InspectionSignature } from './SignaturesPanel';
 
 type Condition = 'excellent' | 'good' | 'fair' | 'poor' | 'damaged';
 
@@ -32,6 +33,7 @@ type Inspection = {
     property: { id: number; name: string } | null;
     sections: InspectionSection[];
     progress: Progress;
+    signatures?: InspectionSignature[];
 };
 
 type Property = { id: number; name: string };
@@ -179,6 +181,34 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
         setPhotoMap((current) => ({ ...current, ...fresh }));
     }
 
+    async function reloadSignatures(): Promise<void> {
+        if (selectedId === null) {
+            return;
+        }
+
+        const response = await fetch(`${apiBase}/inspections/${selectedId}`, { headers: headers() });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const payload = (await response.json()) as { data: Inspection };
+        setInspections((current) =>
+            current.map((inspection) =>
+                inspection.id === payload.data.id ? { ...inspection, signatures: payload.data.signatures } : inspection,
+            ),
+        );
+    }
+
+    const selectedIsSubmitted = selected !== null && selected.status !== 'draft';
+
+    useEffect(() => {
+        if (selectedIsSubmitted) {
+            void reloadSignatures();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedId, selectedIsSubmitted]);
+
     async function submitInspection(): Promise<void> {
         if (selected === null) {
             return;
@@ -269,6 +299,16 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
                         <p className="text-sm font-medium text-emerald-700">
                             Submitted on {new Date(selected.submitted_at).toLocaleString()}
                         </p>
+                    )}
+                    {selected.status !== 'draft' && (
+                        <SignaturesPanel
+                            key={selected.id}
+                            apiBase={apiBase}
+                            headers={headers}
+                            inspectionId={selected.id}
+                            signatures={selected.signatures ?? []}
+                            onChanged={() => void reloadSignatures()}
+                        />
                     )}
                     <div className="flex flex-wrap gap-2">
                         {selected.sections.map((section) => (

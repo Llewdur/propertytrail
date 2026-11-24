@@ -7,15 +7,22 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\EvidenceDownloadController;
 use App\Http\Controllers\Api\InspectionController;
+use App\Http\Controllers\Api\InspectionSignatureController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
 use App\Http\Controllers\Api\OrganisationController;
 use App\Http\Controllers\Api\PropertyController;
+use App\Http\Controllers\Api\PublicSigningController;
 use App\Http\Controllers\Api\SystemController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('health', [SystemController::class, 'health']);
 Route::get('version', [SystemController::class, 'version']);
+
+Route::middleware('throttle:30,1')->group(function (): void {
+    Route::get('sign/{token}', [PublicSigningController::class, 'show']);
+    Route::post('sign/{token}', [PublicSigningController::class, 'sign']);
+});
 
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('organisations', [OrganisationController::class, 'index']);
@@ -51,6 +58,18 @@ Route::middleware('auth:sanctum')->group(function (): void {
         'updateSection',
     ])->whereNumber(['inspection', 'section']);
     Route::post('inspections/{inspection}/submit', [InspectionController::class, 'submit'])->whereNumber('inspection');
+    Route::post('inspections/{inspection}/signatures', [
+        InspectionSignatureController::class,
+        'store',
+    ])->whereNumber('inspection');
+    Route::post('inspections/{inspection}/signing-links', [
+        InspectionSignatureController::class,
+        'issueLink',
+    ])->whereNumber('inspection');
+    Route::delete('inspections/{inspection}/signing-links', [
+        InspectionSignatureController::class,
+        'revokeLinks',
+    ])->whereNumber('inspection');
 
     Route::get('audit-logs', [AuditLogController::class, 'index']);
 });
