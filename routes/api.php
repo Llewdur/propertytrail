@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\EvidenceDownloadController;
 use App\Http\Controllers\Api\InspectionController;
+use App\Http\Controllers\Api\InspectionDeliveryController;
 use App\Http\Controllers\Api\InspectionReportController;
 use App\Http\Controllers\Api\InspectionSignatureController;
 use App\Http\Controllers\Api\LeaseController;
@@ -72,6 +73,18 @@ Route::middleware('auth:sanctum')->group(function (): void {
         InspectionSignatureController::class,
         'revokeLinks',
     ])->whereNumber('inspection');
+    Route::put('inspections/{inspection}/contacts', [InspectionDeliveryController::class, 'saveContact'])->whereNumber(
+        'inspection',
+    );
+    Route::post('inspections/{inspection}/signing-links/send', [
+        InspectionDeliveryController::class,
+        'sendSigningLink',
+    ])
+        ->whereNumber('inspection')
+        ->middleware('throttle:6,1');
+    Route::get('inspections/{inspection}/deliveries', [InspectionDeliveryController::class, 'index'])->whereNumber(
+        'inspection',
+    );
     Route::get('inspections/{inspection}/report', [InspectionReportController::class, 'show'])->whereNumber(
         'inspection',
     );

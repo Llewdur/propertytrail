@@ -41,12 +41,22 @@ return [
 
     'whatsapp' => [
         'url' => env('WHATSAPP_SERVICE_URL', 'http://127.0.0.1:8097'),
-        'token' => env('WHATSAPP_SERVICE_TOKEN'),
+        'client_id' => env('WHATSAPP_SERVICE_CLIENT_ID'),
+        'client_secret' => env('WHATSAPP_SERVICE_CLIENT_SECRET'),
+        'provider' => env('WHATSAPP_PROVIDER', 'meta_cloud_api'),
+        'credential_alias' => env('WHATSAPP_CREDENTIAL_ALIAS', 'propertytrail'),
+        'template_id' => env('WHATSAPP_TEMPLATE_ID', 'propertytrail_notice'),
+        'template_language' => env('WHATSAPP_TEMPLATE_LANGUAGE', 'en'),
     ],
 
     'mail' => [
         'url' => env('MAIL_SERVICE_URL', 'http://127.0.0.1:8084'),
-        'token' => env('MAIL_SERVICE_TOKEN'),
+        'client_id' => env('MAIL_SERVICE_CLIENT_ID'),
+        'client_secret' => env('MAIL_SERVICE_CLIENT_SECRET'),
+        'provider' => env('MAIL_SERVICE_PROVIDER', 'resend'),
+        'credential_ref' => env('MAIL_SERVICE_CREDENTIAL_REF', 'propertytrail'),
+        'sender_address' => env('MAIL_FROM_ADDRESS', 'no-reply@propertytrail.co.za'),
+        'sender_name' => env('MAIL_FROM_NAME', 'PropertyTrail'),
     ],
 
     'google' => [
