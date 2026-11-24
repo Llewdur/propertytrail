@@ -21,7 +21,7 @@ type Props = {
     onChanged: () => void;
 };
 
-function useBlobUrl(apiBase: string, headers: () => Record<string, string>, evidenceId: number): string | null {
+export function useBlobUrl(apiBase: string, headers: () => Record<string, string>, evidenceId: number): string | null {
     const [url, setUrl] = useState<string | null>(null);
 
     useEffect(() => {

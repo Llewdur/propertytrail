@@ -1,5 +1,6 @@
 import { Button, Card } from '@zekini/ui';
 import { useCallback, useEffect, useState } from 'react';
+import { useBlobUrl } from './ItemPhotos';
 
 type Property = { id: number; name: string };
 type Room = { id: number; name: string };
@@ -29,9 +30,28 @@ type Group = { room: Room | null; photos: Photo[] };
 type Props = {
     apiBase: string;
     organisationId: number | null;
+    refreshKey?: number;
 };
 
-export default function LeasePhotosPanel({ apiBase, organisationId }: Props) {
+function PhotoPreview({ apiBase, headers, photo }: { apiBase: string; headers: () => Record<string, string>; photo: Photo }) {
+    const url = useBlobUrl(apiBase, headers, photo.record.id);
+
+    return (
+        <figure className="w-28 text-xs">
+            {url !== null ? (
+                <img src={url} alt={photo.label ?? photo.record.file_name} className="h-20 w-28 rounded object-cover" />
+            ) : (
+                <div className="h-20 w-28 rounded bg-slate-100" />
+            )}
+            <figcaption className="mt-1 truncate">{photo.record.file_name}</figcaption>
+            {url !== null && (
+                <a className="underline" href={url} download={photo.record.file_name}>Download</a>
+            )}
+        </figure>
+    );
+}
+
+export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey = 0 }: Props) {
     const [properties, setProperties] = useState<Property[]>([]);
     const [propertyId, setPropertyId] = useState<number | null>(null);
     const [rooms, setRooms] = useState<Room[]>([]);
@@ -44,7 +64,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId }: Props) {
     const [roomId, setRoomId] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    const headers = useCallback((): HeadersInit => {
+    const headers = useCallback((): Record<string, string> => {
         const result: Record<string, string> = { Accept: 'application/json' };
         if (organisationId !== null) {
             result['X-Organisation-Id'] = String(organisationId);
@@ -86,7 +106,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId }: Props) {
                 setPropertyId(payload.data[0]?.id ?? null);
             })
             .catch(() => setError('Could not load properties.'));
-    }, [apiBase, headers]);
+    }, [apiBase, headers, refreshKey]);
 
     useEffect(() => {
         if (propertyId === null) {
@@ -147,7 +167,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId }: Props) {
 
     return (
         <Card>
-            <h2 className="text-lg font-semibold">Lease photos</h2>
+            <h2 id="lease-photos" className="text-lg font-semibold">Lease photos</h2>
             <div className="mt-4 flex flex-wrap gap-3">
                 <label className="text-sm">
                     Property
@@ -233,9 +253,10 @@ export default function LeasePhotosPanel({ apiBase, organisationId }: Props) {
                                     {group.photos
                                         .filter((photo) => photo.phase === lens)
                                         .map((photo) => (
-                                            <p key={photo.id} className="text-sm">
-                                                {photo.record.file_name} · {photo.taken_at ?? 'undated'}
-                                            </p>
+                                            <div key={photo.id} className="mt-2 flex items-start gap-2">
+                                                <PhotoPreview apiBase={apiBase} headers={headers} photo={photo} />
+                                                <p className="text-sm text-slate-500">{photo.taken_at ?? 'undated'}</p>
+                                            </div>
                                         ))}
                                 </div>
                             ))}
