@@ -16,6 +16,7 @@ use App\Contracts\Adapters\StorageAdapterInterface;
 use App\Contracts\Adapters\WhatsAppAdapterInterface;
 use App\Factories\AreaRoomWriteFactory;
 use App\Factories\EvidenceWriteFactory;
+use App\Factories\InspectionWriteFactory;
 use App\Factories\LeaseWriteFactory;
 use App\Factories\OrganisationWriteFactory;
 use App\Factories\PropertyWriteFactory;
@@ -23,6 +24,7 @@ use App\Factories\UserWriteFactory;
 use App\Repositories\AreaRoomRepository;
 use App\Repositories\AuditLogRepository;
 use App\Repositories\EvidenceRepository;
+use App\Repositories\InspectionRepository;
 use App\Repositories\LeaseRepository;
 use App\Repositories\OrganisationRepository;
 use App\Repositories\PropertyRepository;
@@ -50,6 +52,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(LeaseRepository::class);
         $this->app->singleton(AuditLogRepository::class);
         $this->app->singleton(UserRepository::class);
+        $this->app->singleton(InspectionRepository::class);
 
         $this->app->singleton(OrganisationWriteFactory::class);
         $this->app->singleton(PropertyWriteFactory::class);
@@ -57,6 +60,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(EvidenceWriteFactory::class);
         $this->app->singleton(LeaseWriteFactory::class);
         $this->app->singleton(UserWriteFactory::class);
+        $this->app->singleton(InspectionWriteFactory::class);
     }
 
     public function boot(): void
