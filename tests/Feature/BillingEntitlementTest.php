@@ -37,14 +37,14 @@ afterEach(function (): void {
 
 it('stops a free organisation at one inspection and offers the next plan', function (): void {
     app(CurrentOrganisation::class)->set($this->organisation->id);
-    app(PropertyWriteFactory::class)->create(propertyPayload('Billing House'));
+    $property = app(PropertyWriteFactory::class)->create(propertyPayload('Billing House'));
     resetTenant();
 
     $client = billingClient($this->user, $this->organisation->id);
-    $client->postJson('/api/v1/inspections', ['property_id' => 1, 'phase' => 'incoming'])->assertCreated();
+    $client->postJson('/api/v1/inspections', ['property_id' => $property->id, 'phase' => 'incoming'])->assertCreated();
 
     $response = $client
-        ->postJson('/api/v1/inspections', ['property_id' => 1, 'phase' => 'incoming'])
+        ->postJson('/api/v1/inspections', ['property_id' => $property->id, 'phase' => 'incoming'])
         ->assertPaymentRequired()
         ->assertJsonPath('code', 'plan_limit')
         ->assertJsonPath('upgrade.plan', 'starter')
