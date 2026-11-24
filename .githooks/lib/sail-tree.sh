@@ -139,8 +139,6 @@ zekini_git_mounts() {
 #
 #   zekini_git_compose_override . > "$(git rev-parse --absolute-git-dir)/compose.override.yml"
 #   COMPOSE_FILE=docker-compose.yml:<that path>        # in the worktree's .env
-#
-# Fleet writes the same override for its own worktrees (Fleet/gitmount.py).
 zekini_git_compose_override() {
   local tree="${1:-.}" service="${2:-${APP_SERVICE:-laravel.test}}" mounts path
 

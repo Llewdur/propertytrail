@@ -63,6 +63,22 @@
 #   ZEKINI_STOP_ON_FAILURE=false     # run every backend stage to the end instead
 #                                    # of stopping at the first failure per worker
 #                                    # (a report, not a verdict — debugging only)
+#   ZEKINI_CI_SUITE_GATE=true        # GitHub Actions CI is the ONE suite gate
+#                                    # (ZST-1175): pre-push skips the backend
+#                                    # suite, the web tests and the browser group
+#                                    # and keeps only the fast local checks
+#                                    # (VERSION bump, mago, typecheck, build).
+#                                    # Merge waits on `gh pr checks`. Only for a
+#                                    # repo whose CI is live; unset = full gate.
+#                                    # ZEKINI_FULL_GATE=true still runs it all.
+#
+# Frontend test selection (ZST-1170): on a branch push whose changed paths are
+# known, the vitest lane runs `vitest related <changed web source files> --run`
+# with no coverage threshold instead of the full `test:coverage`, and the receipt
+# records `web-tests=selected`. The FULL run with coverage stays for: main, a
+# tag, ZEKINI_FULL_GATE, an unknown/empty diff, and any wiring file (package.json,
+# a lockfile, tsconfig, vite/vitest config, test/setup — ZEKINI_WEB_WIRING_PATTERN).
+# A diff reaching no web source file runs no vitest and is still `selected`.
 #
 # The backend stages and the dedicated browser step below ALSO go through
 # lib/fleet-test-lock.sh — the machine-wide test queue (ZST-258/332). That
@@ -349,6 +365,38 @@ if [ "$deleted_refs" -gt 0 ] && [ "${#tag_names[@]}" -eq 0 ] && [ "$branch_refs"
   echo "✓ pre-push: deletion only ($deleted_refs ref(s)) — nothing is being added, so there is nothing to verify."
   exit 0
 fi
+
+# ── A hotfix/* push runs no gates and does not queue for the test lock (owner, 2026-11-24) ──
+#
+# "hotfixes (incl next card) is no verify": a push whose every branch is `hotfix/*`, with no tag in it, skips every
+# gate (lint, analyse, backend suite, frontend lanes, browser group) along with the review panel and the VERSION
+# bump. Decided BEFORE the machine-wide test lock below: an earlier version stopped after lint and analyse but only
+# after queuing behind another repo's suite, so a one-line hotfix waited minutes for nothing. The protected-branch
+# check above has already run, so this can never be a push to main. ZEKINI_FULL_GATE=true forces the full gate.
+# Written as a case (not zekini_is_hotfix, which is defined far below) and kept in step with that predicate.
+zekini_pushes_only_hotfix() {
+  local idx=0
+  [ "${#branch_ref_names[@]}" -gt 0 ] || return 1
+  [ "${#tag_names[@]}" -eq 0 ] || return 1
+  while [ "$idx" -lt "${#branch_ref_names[@]}" ]; do
+    case "${branch_ref_names[$idx]}" in
+      hotfix/*) ;;
+      *) return 1 ;;
+    esac
+    idx=$((idx + 1))
+  done
+  return 0
+}
+
+case "${ZEKINI_FULL_GATE:-}" in
+  1 | true | TRUE | True | yes | on) ;;
+  *)
+    if zekini_pushes_only_hotfix; then
+      echo "⏩ pre-push: hotfix/* push — no gates run (ZEKINI_FULL_GATE=true forces the full gate)." >&2
+      exit 0
+    fi
+    ;;
+esac
 
 # ── A tag push is not a code push ─────────────────────────────────────────────
 #
@@ -835,6 +883,7 @@ zekini_green_write() {
     echo "stages=${zekini_green_stages}"
     echo "missing=${zekini_green_missing}"
     echo "browser-tests=${browser_tests}"
+    echo "web-tests=${zekini_web_tests_mode:-}"
     echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   } > "$tmp" || ! mv -f "$tmp" "$zekini_green_file"; then
     rm -f "$tmp"
@@ -1691,6 +1740,18 @@ if [ -z "$skip_slow" ] && [ -f .env ]; then
   skip_slow="${skip_slow//[[:space:]]/}" # strip surrounding whitespace
 fi
 
+# ZST-1175: repo policy (committed .githooks/config), OFF by default. A repo whose
+# GitHub Actions CI is live opts in; CI then runs the suites once, on Postgres,
+# and merging waits for it. ZEKINI_FULL_GATE=true overrides it for a deliberate
+# full local run (a measurement card, a release).
+zekini_ci_suite_gate() {
+  [ "${zekini_full_gate:-0}" -eq 1 ] && return 1
+  case "${ZEKINI_CI_SUITE_GATE:-}" in
+    1 | true | TRUE | True | yes | on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 zekini_slow_skipped() {
   case "$skip_slow" in
     1 | true | TRUE | True | yes | on) return 0 ;;
@@ -1698,18 +1759,7 @@ zekini_slow_skipped() {
   esac
 }
 
-# ── Batch mode vs SKIP_SLOW_TESTS (ZST-1097) ──────────────────────────────────
-#
-# Local batch mode is central `repos_off` plus this per-developer switch, and either
-# one without the other is a half-entered batch (docs/batch-mode.md, ZST-1078): Kadro's
-# session flipped only the board flag and the next push ran the full browser group.
-# lib/batch-mode-guard reads `repos_off` from the hub's settings record with this
-# machine's worker token (GET, read-only) and prints a loud warning on either mismatch.
-#
-# It WARNS, never blocks, and is silent on every failure — no token, no curl/python3,
-# an unreachable or slow hub. A batch-mode warning is not worth a failed push, and it
-# must be right: a false alarm on every push trains people to ignore it. The guard is
-# optional in a checkout that has not re-synced lib/ yet (hook-drift tracks it).
+# The repo's name from its origin remote (batch mode, docs/batch-mode.md).
 zekini_batch_repo_name() {
   local url
   url="$(git remote get-url origin 2>/dev/null || true)"
@@ -1721,14 +1771,18 @@ zekini_batch_repo_name() {
   fi
 }
 
-zekini_batch_mode_warn() {
-  local guard
-  guard="$(dirname "${BASH_SOURCE[0]}")/lib/batch-mode-guard"
-  [ -x "$guard" ] || return 0
-  "$guard" "$(zekini_batch_repo_name)" "$skip_slow" || true
+# ZST-1169: the browser lane follows the BOARD's batch_mode (every fleet repo),
+# lifted per repo by ~/.claude/browser-allowed/<repo>; SKIP_SLOW_TESTS is the
+# legacy fallback outside the fleet. See lib/browser-lane-skip.
+zekini_browser_lane_skipped() {
+  local helper
+  helper="$(dirname "${BASH_SOURCE[0]}")/lib/browser-lane-skip"
+  if [ -x "$helper" ]; then
+    "$helper" "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" "$skip_slow" "$(zekini_batch_repo_name)"
+    return $?
+  fi
+  zekini_slow_skipped
 }
-
-zekini_batch_mode_warn
 
 # Repo policy, from the committed .githooks/config — NOT a per-developer switch.
 # Defaults ON: an unset value must never quietly remove a gate.
@@ -1914,7 +1968,46 @@ zekini_test_args() {
   esac
 }
 
-if zekini_slow_skipped; then
+# ZST-1170: why this push must run the FULL suites — empty when a selection may
+# narrow them. One answer for the backend selector and the frontend `vitest
+# related` run, so the two can never disagree about main, a tag, the
+# ZEKINI_FULL_GATE switch or a range that could not be diffed.
+zekini_full_run_reason() {
+  local current_branch pushed_ref
+  if [ "${zekini_full_gate:-0}" -eq 1 ]; then
+    echo "ZEKINI_FULL_GATE is on"
+    return 0
+  fi
+  if [ "${#tag_names[@]}" -gt 0 ]; then
+    echo "a tag is in this push"
+    return 0
+  fi
+  current_branch="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
+  if [ "$current_branch" = "$protected" ]; then
+    echo "this is ${protected}"
+    return 0
+  fi
+  for pushed_ref in "${branch_ref_names[@]}"; do
+    if [ "$pushed_ref" = "$protected" ]; then
+      echo "this push is to ${protected}"
+      return 0
+    fi
+  done
+  if [ "${#branch_shas[@]}" -eq 0 ]; then
+    echo "no pushed branch to diff (a direct run of the hook)"
+    return 0
+  fi
+  if [ "$zekini_changed_paths_known" -ne 1 ]; then
+    echo "the pushed range could not be diffed (no fetch of ${protected}, or no merge-base)"
+    return 0
+  fi
+  return 0
+}
+
+if zekini_ci_suite_gate; then
+  echo "⏩ ZEKINI_CI_SUITE_GATE is on — SKIPPING the backend test suite: GitHub Actions CI is the suite gate (wait on \`gh pr checks\` before merging)." >&2
+  zekini_green_skip backend
+elif zekini_slow_skipped; then
   echo "⏩ SKIP_SLOW_TESTS is on — SKIPPING the backend test suite." >&2
   echo "  Set SKIP_SLOW_TESTS=false in .env (or unset it) to restore the full gate before shipping anything risky." >&2
   zekini_green_skip backend
@@ -2171,28 +2264,7 @@ else
   # `backend` as missing and bin/zekini-push refuses it (below the loop).
   zekini_selected_groups=""
   if [ -n "${ZEKINI_TEST_SELECTOR:-}" ]; then
-    zekini_selection_full_reason=""
-    zekini_current_branch="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
-    if [ "${zekini_full_gate:-0}" -eq 1 ]; then
-      zekini_selection_full_reason="ZEKINI_FULL_GATE is on"
-    fi
-    if [ -z "$zekini_selection_full_reason" ] && [ "${#tag_names[@]}" -gt 0 ]; then
-      zekini_selection_full_reason="a tag is in this push"
-    fi
-    if [ -z "$zekini_selection_full_reason" ] && [ "$zekini_current_branch" = "$protected" ]; then
-      zekini_selection_full_reason="this is ${protected}"
-    fi
-    for zekini_pushed_ref in "${branch_ref_names[@]}"; do
-      if [ -z "$zekini_selection_full_reason" ] && [ "$zekini_pushed_ref" = "$protected" ]; then
-        zekini_selection_full_reason="this push is to ${protected}"
-      fi
-    done
-    if [ -z "$zekini_selection_full_reason" ] && [ "${#branch_shas[@]}" -eq 0 ]; then
-      zekini_selection_full_reason="no pushed branch to diff (a direct run of the hook)"
-    fi
-    if [ -z "$zekini_selection_full_reason" ] && [ "$zekini_changed_paths_known" -ne 1 ]; then
-      zekini_selection_full_reason="the pushed range could not be diffed (no fetch of ${protected}, or no merge-base)"
-    fi
+    zekini_selection_full_reason="$(zekini_full_run_reason)"
     if [ "${ZEKINI_STAGE_PLAN_SELECTOR:-}" != 1 ]; then
       echo "⚠ pre-push: ZEKINI_TEST_SELECTOR is set, but .githooks/lib/test-stages.sh predates it (ZST-891) — running the full backend suite. Re-sync both files from standards together." >&2
     else
@@ -2330,6 +2402,53 @@ else
   fi
 fi
 
+# ── Web test selection (ZST-1170) ─────────────────────────────────────────────
+#
+# A pure planner for the vitest lane. `selected` runs `vitest related <changed
+# web source files> --run` with NO coverage (a threshold over a subset means
+# nothing); `full` keeps `test:coverage`. Full whenever the full-run reason is
+# set (main, a tag, ZEKINI_FULL_GATE, an undiffable range), the changed paths
+# are empty, or any path is a wiring file — add to the pattern below to extend.
+# A selection that reaches no web source file runs no vitest and still counts as
+# selected; it never falls through to the full suite.
+ZEKINI_WEB_WIRING_PATTERN=${ZEKINI_WEB_WIRING_PATTERN:-'(^|/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig[^/]*\.json)$|(^|/)(vite|vitest)[^/]*\.config\.|(^|/)vite[^/]*\.config\.|(^|/)test/setup|(^|/)(vitest\.)?setup[^/]*\.[cm]?[jt]sx?$'}
+ZEKINI_WEB_ASSET_PATTERN=${ZEKINI_WEB_ASSET_PATTERN:-'^web/.+\.(json|css|scss|sass|less|html|ya?ml|toml)$'}
+ZEKINI_WEB_SOURCE_PATTERN=${ZEKINI_WEB_SOURCE_PATTERN:-'^web/.+\.([cm]?[jt]sx?|vue|svelte)$'}
+
+# zekini_web_test_plan <changed paths, newline-separated> <full-run reason>
+# Sets zekini_web_tests_mode (full|selected), zekini_web_tests_reason and
+# zekini_web_related (web/-relative files, newline-separated).
+zekini_web_test_plan() {
+  local paths="$1" reason="$2" path
+  zekini_web_tests_mode=full
+  zekini_web_tests_reason="$reason"
+  zekini_web_related=""
+  [ -z "$reason" ] || return 0
+  if [ -z "$paths" ]; then
+    zekini_web_tests_reason="no changed paths to select from"
+    return 0
+  fi
+  if grep -Eq "$ZEKINI_WEB_WIRING_PATTERN" <<< "$paths"; then
+    zekini_web_tests_reason="a wiring file changed (package.json, lockfile, vite/vitest config, test setup)"
+    return 0
+  fi
+  # A json / css / html / yaml file under web/ is neither a source file vitest relates
+  # from nor a wiring file, so a selection would run nothing and still be accepted.
+  # Run the full suite instead.
+  if grep -Eq "$ZEKINI_WEB_ASSET_PATTERN" <<< "$paths"; then
+    zekini_web_tests_reason="a web json/css/html/yaml file changed (no vitest relation to select from)"
+    return 0
+  fi
+  zekini_web_tests_mode=selected
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if grep -Eq "$ZEKINI_WEB_SOURCE_PATTERN" <<< "$path"; then
+      zekini_web_related="${zekini_web_related:+${zekini_web_related}$'\n'}${path#web/}"
+    fi
+  done <<< "$paths"
+  return 0
+}
+
 # ── Frontend: only if a web/ SPA is present ───────────────────────────────────
 if [ -f web/package.json ] && [ "$zekini_run_frontend" -eq 0 ]; then
   echo "⏩ pre-push: skipping frontend lanes (typecheck, build, coverage, browser tests) — ${zekini_skip_frontend_reason}." >&2
@@ -2420,6 +2539,38 @@ elif [ -f web/package.json ]; then
     fi
   fi
 
+  # ZST-1170: web test selection. `zekini_web_tests_mode=full` is the original
+  # path below; `selected` runs only the vitest files the diff reaches.
+  zekini_web_tests_mode=full
+  zekini_web_test_plan "$zekini_changed_paths" "$(zekini_full_run_reason)"
+  if zekini_ci_suite_gate; then
+    zekini_web_tests_mode=ci
+    echo "⏩ pre-push: web tests: left to CI (ZEKINI_CI_SUITE_GATE is on)." >&2
+  elif [ "$zekini_web_tests_mode" = selected ]; then
+    if [ -z "$zekini_web_related" ]; then
+      echo "▶ pre-push: web tests: selected — the diff reaches no web source file, nothing to run."
+    else
+      echo "▶ pre-push: web tests: selected — vitest related (no coverage)…"
+      # A deleted path is not a file vitest can relate to; it would fail the run.
+      zekini_web_related_args=()
+      while IFS= read -r zekini_related_path; do
+        if [ -e "web/$zekini_related_path" ]; then zekini_web_related_args+=("$zekini_related_path"); fi
+      done <<< "$zekini_web_related"
+      if [ "${#zekini_web_related_args[@]}" -eq 0 ]; then
+        echo "  (every changed web source file was deleted, nothing for vitest to relate to)"
+      elif [ "$web_is_workspace" = "1" ]; then
+        sail_run npm exec --workspace web -- vitest related --run --passWithNoTests "${zekini_web_related_args[@]}" || fail "web tests (vitest related)"
+      else
+        sail_run npm --prefix web exec -- vitest related --run --passWithNoTests "${zekini_web_related_args[@]}" || fail "web tests (vitest related)"
+      fi
+    fi
+  else
+    echo "▶ pre-push: web tests: full — ${zekini_web_tests_reason}."
+  fi
+
+  # The full run, with coverage (unchanged). Skipped only by a selected run
+  # above; the `if` closes after the coverage log is removed.
+  if [ "$zekini_web_tests_mode" = full ]; then
   echo "▶ pre-push: web test:coverage…"
   # ⚠️ Captured rather than streamed raw, found 2026-08-31 (whatsapp): where
   # `test:coverage` is the ONLY place frontend tests run (true whenever the
@@ -2472,6 +2623,7 @@ elif [ -f web/package.json ]; then
     esac
   fi
   rm -f "$coverage_log"
+  fi
 
   # The only thing anywhere that loads the built bundle in a real browser. Feature
   # tests call the router directly and never load the SPA, and phpunit.xml
@@ -2509,8 +2661,10 @@ elif [ -f web/package.json ]; then
   zekini_green_ran frontend
 
   if zekini_has_browser_tests_memo && zekini_browser_in_prepush; then
-    if zekini_slow_skipped; then
-      echo "⏩ SKIP_SLOW_TESTS is on — SKIPPING the browser tests." >&2
+    if zekini_ci_suite_gate; then
+      echo "⏩ pre-push: browser tests left to CI (ZEKINI_CI_SUITE_GATE is on)." >&2
+    elif zekini_browser_lane_skipped; then
+      echo "⏩ Batch mode (board flag, or legacy SKIP_SLOW_TESTS) — SKIPPING the browser tests." >&2
     else
       # ZST-199: reaps the stray server the backend suite above just leaked
       # (pest-plugin-browser's method filter, not this repo's own tests) —
