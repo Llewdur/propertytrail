@@ -1,6 +1,7 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ItemPhotos, { type ItemPhoto } from './ItemPhotos';
+import { queuedPhotos, resetOfflineStore } from './offline';
 
 const photo = (overrides: Partial<ItemPhoto>): ItemPhoto => ({
     link_id: 1,
@@ -17,12 +18,16 @@ const photo = (overrides: Partial<ItemPhoto>): ItemPhoto => ({
 const props = {
     apiBase: '/api/v1',
     headers: () => ({ Accept: 'application/json' }),
+    inspectionId: 3,
     itemId: 5,
     onChanged: () => undefined,
 };
 
 describe('ItemPhotos', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        await resetOfflineStore();
+        Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => 'blob:test'), configurable: true });
+        Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true });
         vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('x', { status: 404 }))));
     });
 
@@ -58,5 +63,18 @@ describe('ItemPhotos', () => {
         expect(screen.queryByText('Open camera')).toBeNull();
         expect(screen.queryByText('Take photo')).toBeNull();
         expect(screen.queryByText('Retake')).toBeNull();
+    });
+
+    it('queues a photo locally when the network is unavailable', async () => {
+        vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
+        render(<ItemPhotos {...props} editable photos={[]} />);
+
+        const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+        fireEvent.change(input, { target: { files: [new File(['photo'], 'offline.jpg', { type: 'image/jpeg' })] } });
+        fireEvent.click(screen.getByText('Use photo'));
+
+        expect(await screen.findByText(/saved on this device/i)).toBeTruthy();
+        expect(await queuedPhotos(3)).toHaveLength(1);
+        expect(screen.getByText(/waiting to sync/i)).toBeTruthy();
     });
 });
