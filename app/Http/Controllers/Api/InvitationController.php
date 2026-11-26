@@ -60,6 +60,11 @@ final class InvitationController extends Controller
                 abort(Response::HTTP_NOT_FOUND, 'Organisation not found.');
             }
 
+            // An invitation never carries the admin role, so accepting one would demote an admin.
+            if ($user->isAdminIn($organisation)) {
+                abort(Response::HTTP_CONFLICT, 'You are already an admin of this organisation.');
+            }
+
             $claimed = OrganisationInvitation::query()
                 ->whereKey($invitation->getKey())
                 ->whereNull('accepted_at')
@@ -70,7 +75,7 @@ final class InvitationController extends Controller
                 abort(Response::HTTP_CONFLICT, 'Invitation is no longer valid.');
             }
 
-            $this->users->attachToOrganisation($user, $organisation, (string) $invitation->getAttribute('role'));
+            $this->users->setRole($user, $organisation, (string) $invitation->getAttribute('role'));
         });
 
         $this->currentOrganisation->set($organisationId);

@@ -110,7 +110,7 @@
     <div style="page-break-before: always">
         <h2>Move-in vs move-out comparison</h2>
         <p class="muted">
-            Compared with the move-in inspection #{{ $comparison['baseline_id'] }}. Categories describe what the record shows;
+            Compared with the move-in {{ $comparison['baseline_reference'] ? 'report ' . $comparison['baseline_reference'] : 'inspection #' . $comparison['baseline_id'] }}. Categories describe what the record shows;
             they do not decide who is responsible for any cost.
         </p>
         <table>

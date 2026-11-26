@@ -245,6 +245,10 @@ it('lets an accounting reader in the same organisation read the list but store n
     ]);
     $users->attachToOrganisation($reader, $this->organisation, 'viewer');
     $users->acceptTerms($reader, TermsAcceptanceSource::Register);
+    ($this->client)()->postJson('/api/v1/properties/' . $this->property['id'] . '/assignments', [
+        'user_id' => $reader->id,
+        'role' => 'viewer',
+    ])->assertCreated();
 
     $recordCount = EvidenceRecord::query()->count();
     $objectCount = count($this->storage->objects);

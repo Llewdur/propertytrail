@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $note
  * @property string $source
  * @property int $sort_order
+ * @property bool $requires_note
  */
 final class InspectionItem extends Model
 {
@@ -37,5 +38,12 @@ final class InspectionItem extends Model
         'note',
         'source',
         'sort_order',
+        'requires_note',
     ];
+
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        return ['requires_note' => 'boolean'];
+    }
 }

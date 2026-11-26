@@ -24,6 +24,7 @@ final class RequireResolvedOrganisationForWrites
             && !$request->is('api/v1/sign/*')
             && !$request->is('api/v1/billing/webhook')
             && !$request->is('api/v1/pilot-enquiries')
+            && !$request->is('api/v1/invitations/*/accept')
             && $this->currentOrganisation->id() === null
         ) {
             return response()->json([

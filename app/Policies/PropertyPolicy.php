@@ -28,6 +28,20 @@ final class PropertyPolicy
         return $property->assignments()->where('user_id', $user->getKey())->exists();
     }
 
+    /** Recording inspections and evidence: any assignment except a viewer one. */
+    public function contribute(User $user, Property $property): bool
+    {
+        if ($user->isAdminIn($property->organisation_id)) {
+            return true;
+        }
+
+        return $property
+            ->assignments()
+            ->where('user_id', $user->getKey())
+            ->where('role', '!=', OrganisationRole::Viewer->value)
+            ->exists();
+    }
+
     public function create(User $user): bool
     {
         return $user->isAdminIn(app(CurrentOrganisation::class)->id() ?? 0);

@@ -41,6 +41,16 @@ final class InspectionReadiness
             $errors[] = "{$unrated} item(s) are not rated yet.";
         }
 
+        foreach ($inspection->sections as $section) {
+            $missing = $section->items->filter(
+                static fn(InspectionItem $item): bool => $item->requires_note && trim((string) $item->note) === '',
+            );
+
+            foreach ($missing as $item) {
+                $errors[] = "{$section->title}: {$item->label} needs a note.";
+            }
+        }
+
         return $errors;
     }
 }

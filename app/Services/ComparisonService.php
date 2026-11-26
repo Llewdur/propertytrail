@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\EvidenceLink;
 use App\Models\Inspection;
 use App\Models\InspectionItem;
+use App\Models\InspectionReport;
 use App\Models\InspectionSection;
 use App\Support\ConditionVocabulary;
 
@@ -59,6 +60,7 @@ final class ComparisonService
     /**
      * @return array{
      *     baseline_id: int,
+     *     baseline_reference: ?string,
      *     rows: list<array{
      *         room: string, item: string, incoming: ?string, outgoing: ?string,
      *         category: string, label: string, evidence_gap: bool,
@@ -125,6 +127,10 @@ final class ComparisonService
 
         return [
             'baseline_id' => $baseline->id,
+            'baseline_reference' => InspectionReport::query()
+                ->where('inspection_id', $baseline->id)
+                ->orderByDesc('version')
+                ->value('reference'),
             'rows' => $rows,
             'summary' => $summary,
             'evidence_gaps' => $gaps,

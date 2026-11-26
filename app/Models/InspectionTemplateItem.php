@@ -7,7 +7,7 @@ namespace App\Models;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\BelongsToOrganisation;
 use App\Models\Concerns\OrganisationScoped;
-use Illuminate\Database\Eloquent\Factories\Factory;
+use Database\Factories\InspectionTemplateItemFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -25,7 +25,7 @@ final class InspectionTemplateItem extends Model
     use Auditable;
     use BelongsToOrganisation;
 
-    /** @use HasFactory<Factory<Model>> */
+    /** @use HasFactory<InspectionTemplateItemFactory> */
     use HasFactory;
 
     use OrganisationScoped;

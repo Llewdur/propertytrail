@@ -6,11 +6,16 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToOrganisation;
 use App\Models\Concerns\OrganisationScoped;
+use Database\Factories\PropertyAssignmentFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 final class PropertyAssignment extends Model
 {
+    /** @use HasFactory<PropertyAssignmentFactory> */
+    use HasFactory;
+
     use BelongsToOrganisation;
     use OrganisationScoped;
 

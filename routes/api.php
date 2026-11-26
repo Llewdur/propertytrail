@@ -64,67 +64,77 @@ Route::middleware('auth:sanctum')->group(function (): void {
         'destroy',
     ])->whereNumber(['property', 'user']);
 
-    Route::get('properties/{property}/rooms', [AreaRoomController::class, 'index']);
-    Route::post('properties/{property}/rooms', [AreaRoomController::class, 'store']);
-    Route::get('properties/{property}/leases', [LeaseController::class, 'index']);
-    Route::post('properties/{property}/leases', [LeaseController::class, 'store']);
-    Route::get('properties/{property}/lease-photos', [LeasePhotoController::class, 'index']);
-    Route::put('rooms/{room}', [AreaRoomController::class, 'update']);
-    Route::delete('rooms/{room}', [AreaRoomController::class, 'destroy']);
-
     Route::get('evidence', [EvidenceController::class, 'index']);
     Route::post('evidence/upload', [EvidenceController::class, 'upload']);
-    Route::get('evidence/{evidence}', [EvidenceController::class, 'show'])->whereNumber('evidence');
-    Route::get('evidence/{evidence}/download', EvidenceDownloadController::class)->whereNumber('evidence');
-    Route::get('leases/{lease}', [LeaseController::class, 'show']);
-
     Route::get('inspections', [InspectionController::class, 'index']);
     Route::post('inspections', [InspectionController::class, 'store']);
-    Route::get('inspections/{inspection}', [InspectionController::class, 'show'])->whereNumber('inspection');
-    Route::put('inspections/{inspection}/sections/{section}', [
-        InspectionController::class,
-        'updateSection',
-    ])->whereNumber(['inspection', 'section']);
-    Route::post('inspections/{inspection}/submit', [InspectionController::class, 'submit'])->whereNumber('inspection');
-    Route::post('inspections/{inspection}/signatures', [
-        InspectionSignatureController::class,
-        'store',
-    ])->whereNumber('inspection');
-    Route::post('inspections/{inspection}/signing-links', [
-        InspectionSignatureController::class,
-        'issueLink',
-    ])->whereNumber('inspection');
-    Route::delete('inspections/{inspection}/signing-links', [
-        InspectionSignatureController::class,
-        'revokeLinks',
-    ])->whereNumber('inspection');
-    Route::put('inspections/{inspection}/contacts', [InspectionDeliveryController::class, 'saveContact'])->whereNumber(
-        'inspection',
-    );
-    Route::post('inspections/{inspection}/signing-links/send', [
-        InspectionDeliveryController::class,
-        'sendSigningLink',
-    ])
-        ->whereNumber('inspection')
-        ->middleware('throttle:6,1');
-    Route::get('inspections/{inspection}/deliveries', [InspectionDeliveryController::class, 'index'])->whereNumber(
-        'inspection',
-    );
-    Route::get('inspections/{inspection}/report', [InspectionReportController::class, 'show'])->whereNumber(
-        'inspection',
-    );
-    Route::get('inspections/{inspection}/report/download', [
-        InspectionReportController::class,
-        'download',
-    ])->whereNumber('inspection');
-    Route::post('inspections/{inspection}/report/link', [
-        InspectionReportController::class,
-        'issueLink',
-    ])->whereNumber('inspection');
-    Route::delete('inspections/{inspection}/report/link', [
-        InspectionReportController::class,
-        'revokeLinks',
-    ])->whereNumber('inspection');
+
+    Route::middleware('property.access:view')->group(function (): void {
+        Route::get('properties/{property}/rooms', [AreaRoomController::class, 'index']);
+        Route::get('properties/{property}/leases', [LeaseController::class, 'index']);
+        Route::get('properties/{property}/lease-photos', [LeasePhotoController::class, 'index']);
+        Route::get('evidence/{evidence}', [EvidenceController::class, 'show'])->whereNumber('evidence');
+        Route::get('evidence/{evidence}/download', EvidenceDownloadController::class)->whereNumber('evidence');
+        Route::get('leases/{lease}', [LeaseController::class, 'show']);
+        Route::get('inspections/{inspection}', [InspectionController::class, 'show'])->whereNumber('inspection');
+        Route::get('inspections/{inspection}/deliveries', [InspectionDeliveryController::class, 'index'])->whereNumber(
+            'inspection',
+        );
+        Route::get('inspections/{inspection}/report', [InspectionReportController::class, 'show'])->whereNumber(
+            'inspection',
+        );
+        Route::get('inspections/{inspection}/report/download', [
+            InspectionReportController::class,
+            'download',
+        ])->whereNumber('inspection');
+    });
+
+    Route::middleware('property.access:contribute')->group(function (): void {
+        Route::put('inspections/{inspection}/sections/{section}', [
+            InspectionController::class,
+            'updateSection',
+        ])->whereNumber(['inspection', 'section']);
+        Route::post('inspections/{inspection}/submit', [InspectionController::class, 'submit'])->whereNumber(
+            'inspection',
+        );
+        Route::post('inspections/{inspection}/signatures', [
+            InspectionSignatureController::class,
+            'store',
+        ])->whereNumber('inspection');
+        Route::post('inspections/{inspection}/signing-links', [
+            InspectionSignatureController::class,
+            'issueLink',
+        ])->whereNumber('inspection');
+        Route::delete('inspections/{inspection}/signing-links', [
+            InspectionSignatureController::class,
+            'revokeLinks',
+        ])->whereNumber('inspection');
+        Route::put('inspections/{inspection}/contacts', [
+            InspectionDeliveryController::class,
+            'saveContact',
+        ])->whereNumber('inspection');
+        Route::post('inspections/{inspection}/signing-links/send', [
+            InspectionDeliveryController::class,
+            'sendSigningLink',
+        ])
+            ->whereNumber('inspection')
+            ->middleware('throttle:6,1');
+        Route::post('inspections/{inspection}/report/link', [
+            InspectionReportController::class,
+            'issueLink',
+        ])->whereNumber('inspection');
+        Route::delete('inspections/{inspection}/report/link', [
+            InspectionReportController::class,
+            'revokeLinks',
+        ])->whereNumber('inspection');
+    });
+
+    Route::middleware('property.access:update')->group(function (): void {
+        Route::post('properties/{property}/rooms', [AreaRoomController::class, 'store']);
+        Route::post('properties/{property}/leases', [LeaseController::class, 'store']);
+        Route::put('rooms/{room}', [AreaRoomController::class, 'update']);
+        Route::delete('rooms/{room}', [AreaRoomController::class, 'destroy']);
+    });
 
     Route::get('inspection-templates', [InspectionTemplateController::class, 'index']);
     Route::get('inspection-templates/{template}', [InspectionTemplateController::class, 'show'])->whereNumber(

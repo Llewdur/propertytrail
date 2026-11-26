@@ -64,6 +64,8 @@ final class OrganisationController extends Controller
             return response()->json(['message' => 'Organisation not found.'], Response::HTTP_NOT_FOUND);
         }
 
+        $this->authorize('manageTeam', $model);
+
         /** @var array<string, mixed> $data */
         $data = $request->validated();
 
@@ -77,6 +79,8 @@ final class OrganisationController extends Controller
         if ($model === null || !$this->userRepository->belongsToOrganisation($request->user(), $organisation)) {
             return response()->json(['message' => 'Organisation not found.'], Response::HTTP_NOT_FOUND);
         }
+
+        $this->authorize('manageTeam', $model);
 
         $this->branding->storeLogo($model, $request->file('logo'));
 

@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $file_size_bytes
  * @property string $storage_path
  * @property \Illuminate\Support\Carbon|null $captured_at
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, EvidenceLink> $links
  */
 final class EvidenceRecord extends Model
 {
