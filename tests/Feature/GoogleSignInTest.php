@@ -74,7 +74,9 @@ it('does not let Google skip two factor authentication', function (): void {
     ])->save();
     fakeGoogleUser($user->email);
 
-    get('/auth/google/callback')->assertRedirect('/app?auth_error=google_two_factor');
+    get('/auth/google/callback')
+        ->assertRedirect('/app?auth_error=google_two_factor')
+        ->assertSessionHas('login.id', $user->id);
 
     $this->assertGuest();
 });

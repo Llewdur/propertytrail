@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Laravel\Socialite\AbstractUser;
 use Laravel\Socialite\Facades\Socialite;
 use Throwable;
 use Zekini\Auth\Enums\TermsAcceptanceSource;
@@ -28,6 +29,11 @@ final class GoogleAuthController extends Controller
         return Socialite::driver('google')->redirect();
     }
 
+    /**
+     * Only an address Google has verified may create an account or reach an existing one, and only a
+     * locally verified account is linked, because someone else may have registered an unverified one.
+     * Google does not stand in for two factor authentication: such an account goes to the code step.
+     */
     public function callback(Request $request): RedirectResponse
     {
         try {
@@ -36,17 +42,24 @@ final class GoogleAuthController extends Controller
             return redirect('/app?auth_error=google');
         }
 
+        /** @var User|null $user */
         $user = User::query()->where('google_id', $googleUser->getId())->first();
 
         if ($user === null) {
             $email = $googleUser->getEmail();
 
-            // Only an address Google has verified may create an account or reach an existing one.
-            if (!is_string($email) || ($googleUser->getRaw()['email_verified'] ?? null) !== true) {
+            if (
+                !is_string($email)
+                || !$googleUser instanceof AbstractUser
+                || ($googleUser->getRaw()['email_verified'] ?? null) !== true
+            ) {
                 return redirect('/app?auth_error=google');
             }
 
-            $user = User::query()->where('email', $email)->first();
+            /** @var User|null $user */
+            $user = User::query()
+                ->whereRaw('lower(email) = ?', [Str::lower($email)])
+                ->first();
 
             if ($user === null) {
                 $organisation = $this->organisations->create([
@@ -61,18 +74,18 @@ final class GoogleAuthController extends Controller
 
                 $user->forceFill(['google_id' => $googleUser->getId(), 'email_verified_at' => now()])->save();
                 $this->users->attachToOrganisation($user, $organisation, 'admin');
-            } elseif ($user->email_verified_at === null || $user->google_id !== null) {
-                // An unverified local address may have been registered by someone else.
+            } elseif ($user->getAttribute('email_verified_at') === null || $user->getAttribute('google_id') !== null) {
                 return redirect('/app?auth_error=google_link');
             }
         }
 
-        // Google does not stand in for two factor authentication.
-        if ($user->two_factor_confirmed_at !== null) {
+        if ($user->getAttribute('two_factor_confirmed_at') !== null) {
+            $request->session()->put(['login.id' => $user->getKey(), 'login.remember' => false]);
+
             return redirect('/app?auth_error=google_two_factor');
         }
 
-        if ($user->google_id === null) {
+        if ($user->getAttribute('google_id') === null) {
             $user->forceFill(['google_id' => $googleUser->getId()])->save();
         }
 
