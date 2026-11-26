@@ -24,6 +24,7 @@ final class ReportService
 
     public function __construct(
         private readonly StorageAdapterInterface $storage,
+        private readonly ComparisonService $comparison,
         private readonly ReportBrandingService $branding,
         private readonly DeliveryService $deliveries,
         private readonly EntitlementService $billing,
@@ -113,12 +114,16 @@ final class ReportService
 
         $signatures = $inspection->signatures->keyBy('party');
 
+        $comparison = $this->comparison->compare($inspection);
+        $markers = $this->comparison->markers($comparison);
+
         $rooms = $inspection->sections->map(fn(InspectionSection $section): array => [
             'title' => $section->title,
             'items' => $section->items->map(static fn(InspectionItem $item): array => [
                 'label' => $item->label,
                 'condition' => $item->condition,
                 'note' => $item->note,
+                'marker' => $markers[$item->id] ?? null,
             ])->all(),
             'photos' => $this->roomPhotos($section),
         ])->all();
@@ -132,6 +137,8 @@ final class ReportService
             'landlord' => $signatures->get(InspectionSignature::PARTY_LANDLORD),
             'tenant' => $signatures->get(InspectionSignature::PARTY_TENANT),
             'rooms' => $rooms,
+            'comparison' => $comparison,
+            'discrepancyCategories' => ComparisonService::CATEGORY_LABELS,
             'footer' => Legal::REPORT_DISCLAIMER,
             'branding' => $this->branding->forOrganisation($organisation),
             'generatedAt' => now()->toIso8601String(),

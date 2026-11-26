@@ -601,6 +601,12 @@ message = 'Implicit conversion to `string` for right operand via `Ramsey\Uuid\Uu
 count = 1
 
 [[issues]]
+file = "app/Services/ComparisonService.php"
+code = "invalid-return-statement"
+message = 'Invalid return type for function `App\Services\ComparisonService::baselineFor`: expected `App\Models\Inspection|null`, but found `null|stdClass`.'
+count = 1
+
+[[issues]]
 file = "app/Services/EvidenceIngestionService.php"
 code = "invalid-type-cast"
 message = "Non numeric string of type `string` implicitly cast to `float`."

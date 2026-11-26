@@ -89,7 +89,7 @@
                 <tr>
                     <td>{{ $item['label'] }}</td>
                     <td>{{ $item['condition'] ?? 'Not rated' }}</td>
-                    <td>{{ $item['note'] }}</td>
+                    <td>{{ $item['note'] }}@if ($item['marker']) {{ $item['marker'] }}@endif</td>
                 </tr>
             @endforeach
             </tbody>
@@ -105,6 +105,43 @@
         @endif
     </div>
 @endforeach
+
+@if ($comparison)
+    <div style="page-break-before: always">
+        <h2>Move-in vs move-out comparison</h2>
+        <p class="muted">
+            Compared with the move-in inspection #{{ $comparison['baseline_id'] }}. Categories describe what the record shows;
+            they do not decide who is responsible for any cost.
+        </p>
+        <table>
+            <thead><tr><th>Category</th><th style="width:14%">Items</th></tr></thead>
+            <tbody>
+            @foreach ($discrepancyCategories as $key => $label)
+                <tr><td>{{ $label }}</td><td>{{ $comparison['summary'][$key] }}</td></tr>
+            @endforeach
+            </tbody>
+        </table>
+        @if ($comparison['evidence_gaps'] > 0)
+            <p><strong>{{ $comparison['evidence_gaps'] }}</strong> item(s) are rated Poor or Damaged without a move-in photo attached to that item.</p>
+        @endif
+        <h2>Condition changes</h2>
+        <table>
+            <thead><tr><th>Room</th><th>Item</th><th>Move-in</th><th>Move-out</th><th>Category</th></tr></thead>
+            <tbody>
+            @foreach ($comparison['rows'] as $row)
+                @continue ($row['category'] === \App\Services\ComparisonService::UNCHANGED)
+                <tr>
+                    <td>{{ $row['room'] }}</td>
+                    <td>{{ $row['item'] }}</td>
+                    <td>{{ $row['incoming'] ? ucfirst($row['incoming']) : 'Not recorded' }}</td>
+                    <td>{{ $row['outgoing'] ? ucfirst($row['outgoing']) : 'Not rated' }}</td>
+                    <td>{{ $row['label'] }}@if ($row['evidence_gap']) &middot; no move-in item photo @endif</td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
+    </div>
+@endif
 
 <div style="page-break-before: always">
     <h2>Signatures</h2>
