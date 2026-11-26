@@ -38,28 +38,46 @@ final class GoogleAuthController extends Controller
 
         $user = User::query()->where('google_id', $googleUser->getId())->first();
 
-        if ($user === null && is_string($googleUser->getEmail())) {
-            $user = User::query()->where('email', $googleUser->getEmail())->first();
+        if ($user === null) {
+            $email = $googleUser->getEmail();
+
+            // Only an address Google has verified may create an account or reach an existing one.
+            if (!is_string($email) || ($googleUser->getRaw()['email_verified'] ?? null) !== true) {
+                return redirect('/app?auth_error=google');
+            }
+
+            $user = User::query()->where('email', $email)->first();
+
+            if ($user === null) {
+                $organisation = $this->organisations->create([
+                    'name' => ($googleUser->getName() ?: 'My') . ' Organisation',
+                ]);
+
+                $user = $this->users->create([
+                    'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'PropertyTrail User',
+                    'email' => $email,
+                    'password' => Str::random(32),
+                ]);
+
+                $user->forceFill(['google_id' => $googleUser->getId(), 'email_verified_at' => now()])->save();
+                $this->users->attachToOrganisation($user, $organisation, 'admin');
+            } elseif ($user->email_verified_at === null || $user->google_id !== null) {
+                // An unverified local address may have been registered by someone else.
+                return redirect('/app?auth_error=google_link');
+            }
         }
 
-        if ($user === null) {
-            $organisation = $this->organisations->create([
-                'name' => ($googleUser->getName() ?: 'My') . ' Organisation',
-            ]);
+        // Google does not stand in for two factor authentication.
+        if ($user->two_factor_confirmed_at !== null) {
+            return redirect('/app?auth_error=google_two_factor');
+        }
 
-            $user = $this->users->create([
-                'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'PropertyTrail User',
-                'email' => $googleUser->getEmail() ?? Str::lower(Str::random(12)) . '@example.invalid',
-                'password' => Str::random(32),
-            ]);
-
-            $user->forceFill(['google_id' => $googleUser->getId(), 'email_verified_at' => now()])->save();
-            $this->users->attachToOrganisation($user, $organisation, 'admin');
-        } elseif ($user->google_id === null) {
+        if ($user->google_id === null) {
             $user->forceFill(['google_id' => $googleUser->getId()])->save();
         }
 
         Auth::login($user);
+        $request->session()->regenerate();
         $request->session()->put('two_factor_verified', true);
 
         if (!$this->users->hasAcceptedTerms($user)) {
