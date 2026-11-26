@@ -23,7 +23,14 @@ final class PropertyRepository
     {
         $propertyIds = $this->visibleIdsFor($user);
 
-        return $propertyIds === null ? $this->all() : $this->all()->whereIn('id', $propertyIds)->values();
+        if ($propertyIds === null) {
+            return $this->all();
+        }
+
+        /** @var Collection<int, Property> $visible */
+        $visible = $this->all()->whereIn('id', $propertyIds)->values();
+
+        return $visible;
     }
 
     /**

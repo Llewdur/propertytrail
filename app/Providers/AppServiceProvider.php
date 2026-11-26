@@ -31,6 +31,7 @@ use App\Repositories\PropertyRepository;
 use App\Repositories\UserRepository;
 use App\Services\InspectionTemplateService;
 use App\Support\Tenancy\CurrentOrganisation;
+use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Socialite\Facades\Socialite;
 
@@ -67,6 +68,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Read from config, not env(): .env is not loaded once the config is cached.
+        EncryptCookies::except([(string) config('auth-package.trusted_devices.cookie')]);
+
         Socialite::extend('google', static function (): \Laravel\Socialite\Contracts\Provider {
             $config = config('services.google', []);
 

@@ -125,12 +125,15 @@ final class ComparisonService
         }
         unset($row);
 
+        /** @var string|null $reference */
+        $reference = InspectionReport::query()
+            ->where('inspection_id', $baseline->id)
+            ->orderByDesc('version')
+            ->value('reference');
+
         return [
             'baseline_id' => $baseline->id,
-            'baseline_reference' => InspectionReport::query()
-                ->where('inspection_id', $baseline->id)
-                ->orderByDesc('version')
-                ->value('reference'),
+            'baseline_reference' => $reference,
             'rows' => $rows,
             'summary' => $summary,
             'evidence_gaps' => $gaps,

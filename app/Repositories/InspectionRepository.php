@@ -17,8 +17,8 @@ final class InspectionRepository
     public function all(?array $propertyIds = null): Collection
     {
         return Inspection::query()
-            ->when($propertyIds !== null, static fn(Builder $query) => $query->whereIn('property_id', $propertyIds))
             ->with(['sections.items', 'property:id,name', 'lease:id,lease_reference', 'signatures'])
+            ->when($propertyIds !== null, static fn(Builder $query) => $query->whereIn('property_id', $propertyIds))
             ->orderByDesc('id')
             ->get();
     }
