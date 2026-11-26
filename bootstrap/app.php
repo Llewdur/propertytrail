@@ -38,10 +38,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             ResolveCurrentOrganisation::class,
         ]);
-
-        $middleware->encryptCookies(except: [
-            (string) env('AUTH_TRUSTED_DEVICE_COOKIE', 'auth-package_trusted_device'),
-        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(fn(Request $request) => $request->is('api/*') || $request->expectsJson());
