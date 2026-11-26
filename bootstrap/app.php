@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Exceptions\PlanLimitExceeded;
 use App\Http\Middleware\EnsurePropertyAccess;
+use App\Http\Middleware\ForbidProxyTransform;
 use App\Http\Middleware\RequireResolvedOrganisationForWrites;
 use App\Http\Middleware\ResolveCurrentOrganisation;
 use Illuminate\Foundation\Application;
@@ -37,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             ResolveCurrentOrganisation::class,
+            ForbidProxyTransform::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
