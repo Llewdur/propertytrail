@@ -9,11 +9,13 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\SaveInspectionSectionRequest;
 use App\Http\Requests\StoreInspectionRequest;
 use App\Models\Inspection;
+use App\Models\User;
 use App\Repositories\InspectionRepository;
 use App\Repositories\LeaseRepository;
 use App\Repositories\PropertyRepository;
 use App\Services\InspectionService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
@@ -28,10 +30,13 @@ final class InspectionController extends Controller
         private readonly InspectionService $engine,
     ) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        /** @var User $user */
+        $user = $request->user();
+
         return response()->json([
-            'data' => $this->inspections->all()->map(
+            'data' => $this->inspections->all($this->properties->visibleIdsFor($user))->map(
                 static fn(Inspection $inspection): array => $inspection->payload(),
             )->all(),
         ]);
@@ -47,6 +52,8 @@ final class InspectionController extends Controller
         if ($property === null) {
             return response()->json(['message' => 'Property not found.'], Response::HTTP_NOT_FOUND);
         }
+
+        $this->authorize('contribute', $property);
 
         $lease = null;
 

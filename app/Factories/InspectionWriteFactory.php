@@ -64,6 +64,7 @@ final class InspectionWriteFactory
                         'organisation_id' => $property->organisation_id,
                         'inspection_section_id' => $section->id,
                         'label' => $templateItem->label,
+                        'requires_note' => $templateItem->requires_note,
                         'source' => InspectionItem::SOURCE_DEFAULT,
                         'sort_order' => $itemSort++,
                     ]);

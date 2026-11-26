@@ -5,8 +5,10 @@ declare(strict_types=1);
 use App\Factories\AreaRoomWriteFactory;
 use App\Factories\PropertyWriteFactory;
 use App\Factories\UserWriteFactory;
+use App\Models\AuditLog;
 use App\Models\Inspection;
 use App\Models\InspectionTemplate;
+use App\Models\InspectionTemplateItem;
 use App\Models\User;
 use App\Services\InspectionTemplateService;
 use App\Support\InspectionItemDefaults;
@@ -182,4 +184,52 @@ it('does not repopulate a deliberately emptied template', function (): void {
     app(InspectionTemplateService::class)->ensureDefaultsFor($this->organisation);
 
     expect($kitchen->refresh()->items()->count())->toBe(0);
+});
+
+it('refuses to submit while an item that requires a note has none', function (): void {
+    $this->seed(InspectionTemplateSeeder::class);
+    $property = app(PropertyWriteFactory::class)->create(propertyPayload('Note House'));
+    app(AreaRoomWriteFactory::class)->create(templateKitchenRoom($property->id, $this->organisation->id));
+    $kitchen = InspectionTemplate::query()
+        ->forOrganisation($this->organisation->id)
+        ->where('room_type', 'kitchen')
+        ->firstOrFail();
+    app(InspectionTemplateService::class)->saveItems($kitchen, [['label' => 'Extractor fan', 'requires_note' => true]]);
+
+    $client = asTemplateOrgUser($this->user, $this->organisation->id);
+    $created = $client
+        ->postJson('/api/v1/inspections', ['property_id' => $property->id, 'phase' => 'incoming'])
+        ->assertCreated()
+        ->json('data');
+    $section = "/api/v1/inspections/{$created['id']}/sections/{$created['sections'][0]['id']}";
+    $row = ['id' => $created['sections'][0]['items'][0]['id'], 'label' => 'Extractor fan', 'condition' => 'good'];
+
+    $client->putJson($section, ['items' => [$row]])->assertOk();
+    $client
+        ->postJson("/api/v1/inspections/{$created['id']}/submit")
+        ->assertUnprocessable()
+        ->assertJsonPath('errors.0', 'Kitchen: Extractor fan needs a note.');
+
+    $client->putJson($section, ['items' => [$row + ['note' => 'Runs quietly']]])->assertOk();
+    $client->postJson("/api/v1/inspections/{$created['id']}/submit")->assertOk();
+});
+
+it('audits every removed template item', function (): void {
+    $this->seed(InspectionTemplateSeeder::class);
+    $kitchen = InspectionTemplate::query()
+        ->forOrganisation($this->organisation->id)
+        ->where('room_type', 'kitchen')
+        ->firstOrFail();
+    $removed = $kitchen->items->pluck('id')->all();
+
+    app(InspectionTemplateService::class)->saveItems($kitchen, [['label' => 'Worktop']]);
+
+    expect(
+        AuditLog::query()
+            ->where('auditable_type', InspectionTemplateItem::class)
+            ->where('event', 'deleted')
+            ->whereIn('auditable_id', $removed)
+            ->count(),
+    )
+        ->toBe(count($removed));
 });

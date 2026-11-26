@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Exceptions\PlanLimitExceeded;
+use App\Http\Middleware\EnsurePropertyAccess;
 use App\Http\Middleware\RequireResolvedOrganisationForWrites;
 use App\Http\Middleware\ResolveCurrentOrganisation;
 use Illuminate\Foundation\Application;
@@ -28,6 +29,10 @@ return Application::configure(basePath: dirname(__DIR__))
             StartSession::class,
             ResolveCurrentOrganisation::class,
             RequireResolvedOrganisationForWrites::class,
+        ]);
+
+        $middleware->alias([
+            'property.access' => EnsurePropertyAccess::class,
         ]);
 
         $middleware->web(append: [

@@ -10,10 +10,14 @@ use App\Models\AreaRoom;
 use App\Models\InspectionItem;
 use App\Models\Lease;
 use App\Models\Property;
+use App\Models\User;
 use App\Repositories\EvidenceRepository;
+use App\Repositories\PropertyRepository;
 use App\Services\AttachableResolver;
 use App\Services\EvidenceIngestionService;
+use App\Services\PropertyResolver;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -30,11 +34,16 @@ final class EvidenceController extends Controller
         private readonly EvidenceIngestionService $ingestion,
         private readonly EvidenceRepository $evidence,
         private readonly AttachableResolver $attachables,
+        private readonly PropertyRepository $properties,
+        private readonly PropertyResolver $records,
     ) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->evidence->all()]);
+        /** @var User $user */
+        $user = $request->user();
+
+        return response()->json(['data' => $this->evidence->all($this->properties->visibleIdsFor($user))]);
     }
 
     public function show(int $evidence): JsonResponse
@@ -65,6 +74,9 @@ final class EvidenceController extends Controller
         if (!$this->attachables->exists($type, (int) $data['attachable_id'])) {
             return response()->json(['message' => 'Attachable record not found.'], Response::HTTP_NOT_FOUND);
         }
+
+        $propertyId = (int) $this->records->propertyId($type, (int) $data['attachable_id']);
+        $this->authorize('contribute', $this->properties->find($propertyId));
 
         $refusal = $this->attachables->refusal($type, (int) $data['attachable_id'], $data);
 

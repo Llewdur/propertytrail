@@ -73,7 +73,8 @@ final class InspectionTemplateService
     public function saveItems(InspectionTemplate $template, array $items): InspectionTemplate
     {
         DB::transaction(static function () use ($template, $items): void {
-            $template->items()->delete();
+            // One by one, so each removal reaches the audit log.
+            $template->items()->get()->each->delete();
 
             foreach ($items as $index => $item) {
                 $template

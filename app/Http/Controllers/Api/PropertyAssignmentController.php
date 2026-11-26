@@ -23,13 +23,16 @@ final class PropertyAssignmentController extends Controller
         /** @var array<string, mixed> $data */
         $data = $request->validated();
 
-        $assignment = PropertyAssignment::query()->firstOrCreate([
+        $assignment = PropertyAssignment::query()->updateOrCreate([
             'organisation_id' => $property->organisation_id,
             'property_id' => $property->getKey(),
             'user_id' => (int) $data['user_id'],
         ], ['role' => $data['role']]);
 
-        return response()->json(['data' => $assignment], Response::HTTP_CREATED);
+        return response()->json(
+            ['data' => $assignment],
+            $assignment->wasRecentlyCreated ? Response::HTTP_CREATED : Response::HTTP_OK,
+        );
     }
 
     public function destroy(Property $property, int $user): JsonResponse

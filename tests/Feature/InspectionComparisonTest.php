@@ -13,6 +13,7 @@ use App\Models\InspectionSection;
 use App\Services\ComparisonService;
 use App\Services\ReportService;
 use App\Support\Tenancy\CurrentOrganisation;
+use Illuminate\Support\Facades\View;
 use Tests\Support\FakeStorageAdapter;
 
 uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
@@ -163,11 +164,21 @@ it('does not let a title match take the section of another room', function (): v
 });
 
 it('renders the report with the comparison section for an outgoing inspection', function (): void {
-    comparisonInspection($this, 'incoming', ['Counters' => 'fair']);
+    $incoming = comparisonInspection($this, 'incoming', ['Counters' => 'fair']);
     $outgoing = comparisonInspection($this, 'outgoing', ['Counters' => 'fair']);
+    $data = [];
+    View::composer('reports.inspection', function (Illuminate\View\View $view) use (&$data): void {
+        $data = $view->getData();
+    });
 
     $method = new ReflectionMethod(ReportService::class, 'render');
     $pdf = $method->invoke(app(ReportService::class), $outgoing->refresh(), 'PT-TEST');
 
-    expect($pdf)->toStartWith('%PDF');
+    expect($pdf)
+        ->toStartWith('%PDF')
+        ->and(view('reports.inspection', $data)->render())
+        ->toContain('Move-in vs move-out comparison')
+        ->toContain('Existing defect (as at move-in)')
+        ->toContain('(as at move-in)')
+        ->toContain('Compared with the move-in inspection #' . $incoming->id);
 });
