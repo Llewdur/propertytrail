@@ -71,6 +71,14 @@ describe('LeasePhotosPanel', () => {
         vi.unstubAllGlobals();
     });
 
+    it('shows an error instead of crashing when the properties request is refused', async () => {
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(respond({ message: 'Unauthenticated.' }, 401))));
+
+        render(<LeasePhotosPanel apiBase="/api/v1" organisationId={3} />);
+
+        expect(await screen.findByText('Could not load properties.')).toBeTruthy();
+    });
+
     it('previews and offers download for attached lease photos', async () => {
         render(<LeasePhotosPanel apiBase="/api/v1" organisationId={3} />);
 
