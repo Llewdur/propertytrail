@@ -43,18 +43,6 @@ message = "Use of the shorthand ternary operator."
 count = 3
 
 [[issues]]
-file = "app/Http/Controllers/Controller.php"
-code = "no-empty-comment"
-message = "Empty comments are not allowed."
-count = 1
-
-[[issues]]
-file = "app/Http/Controllers/Controller.php"
-code = "strict-types"
-message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
-count = 1
-
-[[issues]]
 file = "app/Models/AuditLog.php"
 code = "prefer-casts-method"
 message = "Define model casts in the `casts()` method instead of the `$casts` property."
@@ -130,6 +118,18 @@ count = 3
 file = "app/Providers/FortifyServiceProvider.php"
 code = "strict-types"
 message = "Missing `declare(strict_types=1);` statement at the beginning of the file."
+count = 1
+
+[[issues]]
+file = "app/Services/Billing/EntitlementService.php"
+code = "cyclomatic-complexity"
+message = "Class has high complexity."
+count = 1
+
+[[issues]]
+file = "app/Services/Billing/EntitlementService.php"
+code = "too-many-methods"
+message = "Class has too many methods."
 count = 1
 
 [[issues]]

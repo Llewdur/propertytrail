@@ -16,6 +16,9 @@ final class StoreOrganisationRequest extends FormRequest
             'currency' => ['sometimes', 'string', 'size:3'],
             'timezone' => ['sometimes', 'string', 'max:255'],
             'settings' => ['sometimes', 'array'],
+            'settings.*' => ['nullable'],
+            'settings.plan' => ['prohibited'],
+            'settings.branding' => ['prohibited'],
         ];
     }
 }

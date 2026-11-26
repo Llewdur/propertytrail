@@ -3,7 +3,10 @@ import { useEffect, useState } from 'react';
 import { AuthPanel } from './AuthPanel';
 import InspectionPanel from './InspectionPanel';
 import LeasePhotosPanel from './LeasePhotosPanel';
+import OrganisationSwitcher from './OrganisationSwitcher';
+import PlanPanel from './PlanPanel';
 import { ProfileMenu } from './ProfileMenu';
+import SetupPanel from './SetupPanel';
 import { fetchMe, firstError, logout, type AuthUser, type Bootstrap } from './auth';
 
 type Health = {
@@ -24,6 +27,7 @@ export default function App() {
     const [accountError, setAccountError] = useState<string | null>(null);
     const [signingOut, setSigningOut] = useState(false);
     const [logoutError, setLogoutError] = useState<string | null>(null);
+    const [setupKey, setSetupKey] = useState(0);
 
     useEffect(() => {
         fetch(`${bootstrap?.apiBase ?? '/api/v1'}/health`)
@@ -143,15 +147,47 @@ export default function App() {
                                     ? 'No organisation selected'
                                     : `Organisation #${bootstrap.currentOrganisationId}`}
                             </p>
+                            <OrganisationSwitcher
+                                apiBase={bootstrap.apiBase ?? '/api/v1'}
+                                csrfToken={bootstrap.csrfToken}
+                                organisationId={bootstrap.currentOrganisationId ?? null}
+                                onSwitched={() => window.location.reload()}
+                            />
                             <div className="mt-4 flex gap-3">
-                                <Button>New property</Button>
-                                <Button variant="secondary">Upload evidence</Button>
+                                <Button onClick={() => document.getElementById('setup')?.scrollIntoView({ behavior: 'smooth' })}>
+                                    New property
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => document.getElementById('lease-photos')?.scrollIntoView({ behavior: 'smooth' })}
+                                >
+                                    Upload evidence
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth' })}
+                                >
+                                    Plan and usage
+                                </Button>
                             </div>
                         </Card>
+
+                        <PlanPanel
+                            apiBase={bootstrap.apiBase ?? '/api/v1'}
+                            organisationId={bootstrap.currentOrganisationId ?? null}
+                        />
+
+                        <SetupPanel
+                            apiBase={bootstrap.apiBase ?? '/api/v1'}
+                            organisationId={bootstrap.currentOrganisationId ?? null}
+                            csrfToken={bootstrap.csrfToken}
+                            onChanged={() => setSetupKey((key) => key + 1)}
+                        />
 
                         <LeasePhotosPanel
                             apiBase={bootstrap.apiBase ?? '/api/v1'}
                             organisationId={bootstrap.currentOrganisationId ?? null}
+                            refreshKey={setupKey}
                         />
 
                         <InspectionPanel

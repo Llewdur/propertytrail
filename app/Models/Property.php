@@ -10,8 +10,13 @@ use App\Models\Concerns\OrganisationScoped;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property int $id
+ * @property int $organisation_id
+ */
 final class Property extends Model
 {
     use Auditable;
@@ -46,6 +51,18 @@ final class Property extends Model
     public function rooms(): HasMany
     {
         return $this->hasMany(AreaRoom::class);
+    }
+
+    /** @return HasMany<PropertyAssignment, $this> */
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(PropertyAssignment::class);
+    }
+
+    /** @return BelongsToMany<User, $this> */
+    public function assignedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'property_user')->withPivot(['role'])->withTimestamps();
     }
 
     /** @return BelongsTo<Organisation, $this> */

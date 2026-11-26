@@ -135,6 +135,31 @@ final class ComparisonService
     }
 
     /**
+     * Report annotations keyed by move-out item id.
+     *
+     * @param array{rows: list<array{category: string, outgoing_item_id: ?int, ...}>, ...}|null $comparison
+     * @return array<int, ?string>
+     */
+    public function markers(?array $comparison): array
+    {
+        $markers = [];
+
+        foreach ($comparison['rows'] ?? [] as $row) {
+            if ($row['outgoing_item_id'] === null) {
+                continue;
+            }
+
+            $markers[$row['outgoing_item_id']] = match ($row['category']) {
+                self::EXISTING_DEFECT => '(as at move-in)',
+                self::POTENTIAL_NEW_DAMAGE => '(potential new damage)',
+                default => null,
+            };
+        }
+
+        return $markers;
+    }
+
+    /**
      * @param list<int> $itemIds
      * @return array<int, true>
      */

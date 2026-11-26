@@ -62,20 +62,32 @@ count = 1
 
 [[issues]]
 file = "app/Adapters/FleetAccountingAdapter.php"
-code = "mixed-return-statement"
-message = 'Could not infer a precise return type for function `App\Adapters\FleetAccountingAdapter::createCustomer`. Saw type `mixed`.'
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Adapters/ZekiniMailAdapter.php"
+code = "incompatible-parameter-type"
+message = '''Parameter `$payload` of `App\Adapters\ZekiniMailAdapter::send()` expects type `array{'attachments'?: list<array{'content': string, 'content_type': string, 'filename': string}>, 'html'?: string, 'idempotency_key': string, 'subject': string, 'text': string, 'to': string}` but parent `App\Contracts\Adapters\MailAdapterInterface::send()` expects type `array<string, mixed>`'''
 count = 1
 
 [[issues]]
 file = "app/Adapters/ZekiniMailAdapter.php"
 code = "mixed-return-statement"
-message = 'Could not infer a precise return type for function `App\Adapters\ZekiniMailAdapter::send`. Saw type `mixed`.'
+message = 'Could not infer a precise return type for function `App\Adapters\ZekiniMailAdapter::send`. Saw type `nonnull`.'
+count = 1
+
+[[issues]]
+file = "app/Adapters/ZekiniMailAdapter.php"
+code = "possibly-undefined-string-array-index"
+message = "Possibly undefined array key 'attachments' accessed on `array{'attachments'?: list<array{'content': string, 'content_type': string, 'filename': string}>, 'html'?: string, 'idempotency_key': string, 'subject': string, 'text': string, 'to': string}`."
 count = 1
 
 [[issues]]
 file = "app/Adapters/ZekiniWhatsAppAdapter.php"
 code = "mixed-return-statement"
-message = 'Could not infer a precise return type for function `App\Adapters\ZekiniWhatsAppAdapter::sendMessage`. Saw type `mixed`.'
+message = 'Could not infer a precise return type for function `App\Adapters\ZekiniWhatsAppAdapter::sendMessage`. Saw type `nonnull`.'
 count = 1
 
 [[issues]]
@@ -98,12 +110,6 @@ count = 1
 
 [[issues]]
 file = "app/Factories/InspectionWriteFactory.php"
-code = "mixed-argument"
-message = 'Invalid argument type for argument #1 of `App\Support\InspectionItemDefaults::forRoomType`: expected `string`, but found `mixed`.'
-count = 1
-
-[[issues]]
-file = "app/Factories/InspectionWriteFactory.php"
 code = "mixed-return-statement"
 message = 'Could not infer a precise return type for function `App\Factories\InspectionWriteFactory::create`. Saw type `mixed`.'
 count = 1
@@ -115,21 +121,15 @@ message = 'Ambiguous property access: $id on class `App\Models\Lease`.'
 count = 1
 
 [[issues]]
-file = "app/Factories/InspectionWriteFactory.php"
-code = "non-documented-property"
-message = 'Ambiguous property access: $id on class `App\Models\Property`.'
-count = 1
-
-[[issues]]
-file = "app/Factories/InspectionWriteFactory.php"
-code = "non-documented-property"
-message = 'Ambiguous property access: $organisation_id on class `App\Models\Property`.'
-count = 1
-
-[[issues]]
 file = "app/Factories/OrganisationWriteFactory.php"
 code = "mixed-argument"
 message = 'Invalid argument type for argument #1 of `Illuminate\Support\Str::slug`: expected `string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Factories/PropertyWriteFactory.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
 count = 1
 
 [[issues]]
@@ -157,9 +157,27 @@ message = 'Ambiguous property access: $google_id on class `App\Models\User`.'
 count = 1
 
 [[issues]]
-file = "app/Http/Controllers/Api/InspectionController.php"
-code = "non-documented-property"
-message = 'Ambiguous property access: $id on class `App\Models\Property`.'
+file = "app/Http/Controllers/Api/InspectionDeliveryController.php"
+code = "invalid-argument"
+message = 'Invalid argument type for argument #1 of `Illuminate\Support\Collection::map`: expected `(callable(stdClass, int): array<string, mixed>)`, but found `(closure(App\Models\Delivery): array<string, mixed>)`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/InspectionDeliveryController.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #3 of `App\Services\ContactService::save`: expected `null|string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/InspectionDeliveryController.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #4 of `App\Services\ContactService::save`: expected `null|string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/InspectionDeliveryController.php"
+code = "possibly-invalid-argument"
+message = 'Possible argument type mismatch for argument #4 of `App\Services\DeliveryService::sendSigningLink`: expected `int|null`, but possibly received `int|null|string`.'
 count = 1
 
 [[issues]]
@@ -178,6 +196,18 @@ count = 1
 file = "app/Http/Controllers/Api/OrganisationController.php"
 code = "mixed-argument"
 message = 'Invalid argument type for argument #1 of `App\Repositories\UserRepository::belongsToOrganisation`: expected `App\Models\User`, but found `mixed`.'
+count = 2
+
+[[issues]]
+file = "app/Http/Controllers/Api/OrganisationController.php"
+code = "possibly-invalid-argument"
+message = 'Possible argument type mismatch for argument #2 of `App\Services\ReportBrandingService::storeLogo`: expected `Illuminate\Http\UploadedFile`, but possibly received `Illuminate\Http\UploadedFile|array<array-key, Illuminate\Http\UploadedFile>|null`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/OrganisationController.php"
+code = "possibly-null-argument"
+message = 'Argument #2 of method `App\Services\ReportBrandingService::storeLogo` is possibly `null`, but parameter type `Illuminate\Http\UploadedFile` does not accept it.'
 count = 1
 
 [[issues]]
@@ -203,6 +233,78 @@ file = "app/Http/Middleware/ResolveCurrentOrganisation.php"
 code = "mixed-assignment"
 message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
 count = 1
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Contracts\Adapters\WhatsAppAdapterInterface::sendMessage`: expected `string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Jobs\SendDeliveryJob::audit`: expected `App\Models\Delivery`, but found `nonnull`.'
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Jobs\SendDeliveryJob::mailPayload`: expected `App\Models\Delivery`, but found `nonnull`.'
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Jobs\SendDeliveryJob::recordFailure`: expected `App\Models\Delivery`, but found `nonnull`.'
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Services\ReportService::bytes`: expected `App\Models\InspectionReport`, but found `nonnull`.'
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #2 of `App\Contracts\Adapters\WhatsAppAdapterInterface::sendMessage`: expected `string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 2
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 3
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`nonnull`)."
+count = 2
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-operand"
+message = "Invalid left operand: type `mixed` cannot be reliably used in string concatenation."
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "mixed-property-access"
+message = "Attempting to access a property on a non-object type (`nonnull`)."
+count = 6
+
+[[issues]]
+file = "app/Jobs/SendDeliveryJob.php"
+code = "non-documented-method"
+message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
+count = 2
 
 [[issues]]
 file = "app/Models/AreaRoom.php"
@@ -469,6 +571,36 @@ message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less 
 count = 1
 
 [[issues]]
+file = "app/Services/Billing/EntitlementService.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 11
+
+[[issues]]
+file = "app/Services/Billing/EntitlementService.php"
+code = "mixed-assignment"
+message = "Assigning `nonnull` type to a variable may lead to unexpected behavior."
+count = 2
+
+[[issues]]
+file = "app/Services/Billing/EntitlementService.php"
+code = "mixed-operand"
+message = "Casting `mixed` to `bool`."
+count = 2
+
+[[issues]]
+file = "app/Services/Billing/EntitlementService.php"
+code = "non-documented-method"
+message = 'Ambiguous method call to `getmodels` on class `Illuminate\Database\Query\Builder`.'
+count = 1
+
+[[issues]]
+file = "app/Services/DeliveryService.php"
+code = "implicit-to-string-cast"
+message = 'Implicit conversion to `string` for right operand via `Ramsey\Uuid\UuidInterface::__toString()`.'
+count = 1
+
+[[issues]]
 file = "app/Services/ComparisonService.php"
 code = "invalid-argument"
 message = 'Invalid argument type for argument #1 of `Illuminate\Support\Collection::first`: expected `(callable(Illuminate\Database\Eloquent\Model, array-key): bool)|null`, but found `(closure(App\Models\InspectionSection): bool)`.'
@@ -538,6 +670,24 @@ count = 1
 file = "app/Services/InspectionService.php"
 code = "property-type-coercion"
 message = 'A value of a less specific type `Carbon\CarbonInterface` is being assigned to property `$$submitted_at` (Illuminate\Support\Carbon|null).'
+count = 1
+
+[[issues]]
+file = "app/Services/ReportBrandingService.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 4
+
+[[issues]]
+file = "app/Services/ReportBrandingService.php"
+code = "mixed-operand"
+message = "Invalid middle operand: type `mixed` cannot be reliably used in string concatenation."
+count = 1
+
+[[issues]]
+file = "app/Services/ReportBrandingService.php"
+code = "possibly-false-argument"
+message = "Argument #1 of function `file_get_contents` is possibly `false`, but parameter type `string` does not accept it."
 count = 1
 
 [[issues]]
@@ -614,6 +764,12 @@ count = 1
 
 [[issues]]
 file = "app/Services/ReportService.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #2 of `App\Services\DeliveryService::afterLock`: expected `App\Models\InspectionReport|null`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/ReportService.php"
 code = "mixed-array-access"
 message = "Unsafe array access on type `mixed`."
 count = 3
@@ -622,7 +778,7 @@ count = 3
 file = "app/Services/ReportService.php"
 code = "mixed-assignment"
 message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
-count = 2
+count = 3
 
 [[issues]]
 file = "app/Services/ReportService.php"
@@ -651,12 +807,6 @@ count = 1
 [[issues]]
 file = "app/Services/ReportService.php"
 code = "non-documented-property"
-message = 'Ambiguous property access: $name on class `App\Models\Organisation`.'
-count = 1
-
-[[issues]]
-file = "app/Services/ReportService.php"
-code = "non-documented-property"
 message = 'Ambiguous property access: $signatures on class `App\Models\Inspection`.'
 count = 1
 
@@ -664,12 +814,6 @@ count = 1
 file = "app/Services/ReportService.php"
 code = "non-documented-property"
 message = 'Ambiguous property access: $storage_path on class `Illuminate\Database\Eloquent\Collection`.'
-count = 1
-
-[[issues]]
-file = "app/Services/ReportService.php"
-code = "redundant-cast"
-message = "Redundant cast to `(string)`: the expression already has this type."
 count = 1
 
 [[issues]]
@@ -737,3 +881,33 @@ file = "app/Services/SigningService.php"
 code = "non-documented-method"
 message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
 count = 1
+
+[[issues]]
+file = "app/Support/FleetServiceToken.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Support/FleetServiceToken.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Support\FleetServiceToken::for`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Support/ReportPlan.php"
+code = "invalid-type-cast"
+message = "Casting `mixed` to `array`."
+count = 1
+
+[[issues]]
+file = "app/Support/ReportPlan.php"
+code = "mixed-assignment"
+message = "Assigning `nonnull` type to a variable may lead to unexpected behavior."
+count = 2
+
+[[issues]]
+file = "app/Support/ReportPlan.php"
+code = "mixed-operand"
+message = "Casting `mixed` to `bool`."
+count = 2

@@ -1,5 +1,6 @@
 import { Button } from '@zekini/ui';
 import { useEffect, useRef, useState } from 'react';
+import { queuePhoto, queuedPhotos, type PendingPhoto } from './offline';
 
 export type ItemPhoto = {
     link_id: number;
@@ -15,13 +16,16 @@ export type ItemPhoto = {
 type Props = {
     apiBase: string;
     headers: () => Record<string, string>;
+    inspectionId: number;
     itemId: number;
     photos: ItemPhoto[];
     editable: boolean;
     onChanged: () => void;
+    syncKey?: number;
+    onSyncChanged?: () => void;
 };
 
-function useBlobUrl(apiBase: string, headers: () => Record<string, string>, evidenceId: number): string | null {
+export function useBlobUrl(apiBase: string, headers: () => Record<string, string>, evidenceId: number): string | null {
     const [url, setUrl] = useState<string | null>(null);
 
     useEffect(() => {
@@ -68,7 +72,7 @@ function Thumbnail({ apiBase, headers, photo }: { apiBase: string; headers: () =
     );
 }
 
-export default function ItemPhotos({ apiBase, headers, itemId, photos, editable, onChanged }: Props) {
+export default function ItemPhotos({ apiBase, headers, inspectionId, itemId, photos, editable, onChanged, syncKey, onSyncChanged }: Props) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const [pending, setPending] = useState<File | null>(null);
@@ -76,12 +80,28 @@ export default function ItemPhotos({ apiBase, headers, itemId, photos, editable,
     const [caption, setCaption] = useState('');
     const [cameraOn, setCameraOn] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
+    const [pendingUploads, setPendingUploads] = useState<PendingPhoto[]>([]);
     const [replacing, setReplacing] = useState<number | null>(null);
     const [saving, setSaving] = useState(false);
 
     const current = photos.filter((photo) => !photo.superseded);
 
     useEffect(() => () => stopCamera(), []);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        void queuedPhotos(inspectionId).then((queued) => {
+            if (!cancelled) {
+                setPendingUploads(queued.filter((photo) => photo.itemId === itemId));
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [inspectionId, itemId, syncKey]);
 
     useEffect(() => {
         if (pending === null) {
@@ -159,6 +179,8 @@ export default function ItemPhotos({ apiBase, headers, itemId, photos, editable,
         }
 
         setSaving(true);
+        setError(null);
+        setNotice(null);
 
         try {
             await upload(pending);
@@ -183,11 +205,28 @@ export default function ItemPhotos({ apiBase, headers, itemId, photos, editable,
             form.append('replaces_link_id', String(replacing));
         }
 
-        const response = await fetch(`${apiBase}/evidence/upload`, { method: 'POST', headers: headers(), body: form });
+        try {
+            const response = await fetch(`${apiBase}/evidence/upload`, { method: 'POST', headers: headers(), body: form });
 
-        if (!response.ok) {
-            const failure = (await response.json().catch(() => null)) as { message?: string } | null;
-            setError(failure?.message ?? 'Could not save the photo.');
+            if (!response.ok) {
+                const failure = (await response.json().catch(() => null)) as { message?: string } | null;
+                setError(failure?.message ?? 'Could not save the photo.');
+                return;
+            }
+        } catch {
+            await queuePhoto({
+                inspectionId,
+                itemId,
+                file,
+                fileName: file.name,
+                label: caption.trim() === '' ? null : caption.trim(),
+                replacesLinkId: replacing,
+            });
+            const queued = await queuedPhotos(inspectionId);
+            setPendingUploads(queued.filter((photo) => photo.itemId === itemId));
+            setNotice('Photo saved on this device. It will sync when you are back online.');
+            discard();
+            onSyncChanged?.();
             return;
         }
 
@@ -199,6 +238,12 @@ export default function ItemPhotos({ apiBase, headers, itemId, photos, editable,
     return (
         <div className="mt-3">
             {error !== null && <p role="alert" className="text-xs text-red-600">{error}</p>}
+            {notice !== null && <p role="status" className="text-xs text-emerald-700">{notice}</p>}
+            {pendingUploads.length > 0 && (
+                <p role="status" className="text-xs text-amber-700">
+                    {pendingUploads.length} photo{pendingUploads.length === 1 ? '' : 's'} waiting to sync.
+                </p>
+            )}
             {current.length > 0 && (
                 <div className="flex flex-wrap gap-3">
                     {current.map((photo) => (

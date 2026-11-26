@@ -1,6 +1,15 @@
 import { Button, Card } from '@zekini/ui';
 import { useCallback, useEffect, useState } from 'react';
 import ItemPhotos, { type ItemPhoto } from './ItemPhotos';
+import {
+    dropRoomDraft,
+    flushSync,
+    queueSubmission,
+    roomDraft,
+    saveRoomDraft,
+    syncSummary,
+    type SyncResult,
+} from './offline';
 import SignaturesPanel, { type InspectionSignature } from './SignaturesPanel';
 
 type Condition = 'excellent' | 'good' | 'fair' | 'poor' | 'damaged';
@@ -54,6 +63,11 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
     const [photoMap, setPhotoMap] = useState<Record<number, ItemPhoto[]>>({});
     const [error, setError] = useState<string | null>(null);
     const [submitErrors, setSubmitErrors] = useState<string[]>([]);
+    const [sync, setSync] = useState({ photos: 0, submissions: 0, drafts: 0 });
+    const [online, setOnline] = useState(() => navigator.onLine);
+    const [syncing, setSyncing] = useState(false);
+    const [syncNotice, setSyncNotice] = useState<string | null>(null);
+    const [syncKey, setSyncKey] = useState(0);
 
     const headers = useCallback((): Record<string, string> => {
         const result: Record<string, string> = { Accept: 'application/json' };
@@ -65,16 +79,32 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
         return result;
     }, [organisationId]);
 
-    useEffect(() => {
-        fetch(`${apiBase}/inspections`, { headers: headers() })
-            .then((response) => (response.ok ? (response.json() as Promise<{ data: Inspection[] }>) : Promise.reject(new Error('load'))))
-            .then((payload) => {
-                setInspections(payload.data);
-                setSelectedId((current) => current ?? payload.data[0]?.id ?? null);
-                setActiveSectionId((current) => current ?? payload.data[0]?.sections[0]?.id ?? null);
-            })
-            .catch(() => setError('Could not load inspections.'));
+    const refreshSync = useCallback((): void => {
+        void syncSummary().then(setSync);
+    }, []);
+
+    const reloadInspections = useCallback(async (): Promise<boolean> => {
+        const response = await fetch(`${apiBase}/inspections`, { headers: headers() });
+
+        if (!response.ok) {
+            return false;
+        }
+
+        const payload = (await response.json()) as { data: Inspection[] };
+        setInspections(payload.data);
+        setSelectedId((current) => current ?? payload.data[0]?.id ?? null);
+        setActiveSectionId((current) => current ?? payload.data[0]?.sections[0]?.id ?? null);
+
+        return true;
     }, [apiBase, headers]);
+
+    useEffect(() => {
+        void reloadInspections().then((loaded) => {
+            if (!loaded) {
+                setError('Could not load inspections.');
+            }
+        });
+    }, [reloadInspections]);
 
     useEffect(() => {
         fetch(`${apiBase}/properties`, { headers: headers() })
@@ -86,11 +116,70 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
             .catch(() => setError('Could not load properties.'));
     }, [apiBase, headers]);
 
+    const runSync = useCallback(async (): Promise<SyncResult> => {
+        if (!navigator.onLine) {
+            setSyncNotice('Offline — changes will sync when you are back online.');
+            refreshSync();
+
+            return { photosUploaded: 0, submitted: [], errors: [] };
+        }
+
+        setSyncing(true);
+        setSyncNotice(null);
+
+        try {
+            const result = await flushSync(apiBase, headers);
+
+            if (result.photosUploaded > 0 || result.submitted.length > 0) {
+                await reloadInspections();
+                setSyncKey((current) => current + 1);
+            }
+
+            if (result.errors.length > 0) {
+                setSyncNotice(result.errors.join(' '));
+            }
+
+            return result;
+        } finally {
+            setSyncing(false);
+            refreshSync();
+        }
+    }, [apiBase, headers, refreshSync, reloadInspections]);
+
+    useEffect(() => {
+        const handleOnline = (): void => {
+            setOnline(true);
+            void runSync();
+        };
+        const handleOffline = (): void => setOnline(false);
+
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+
+        if (navigator.onLine) {
+            void runSync();
+        }
+
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, [runSync]);
+
     const selected = inspections.find((inspection) => inspection.id === selectedId) ?? null;
 
     useEffect(() => {
         const section = selected?.sections.find((candidate) => candidate.id === activeSectionId) ?? null;
-        setDrafts(section === null ? [] : section.items.map((item) => ({ ...item })));
+        const base = section === null ? [] : section.items.map((item) => ({ ...item }));
+        setDrafts(base);
+
+        if (selected !== null && activeSectionId !== null) {
+            void roomDraft(selected.id, activeSectionId).then((draft) => {
+                if (draft !== undefined && draft.items.length === base.length) {
+                    setDrafts(draft.items.map((item) => ({ ...item, condition: item.condition as Condition | null })));
+                }
+            });
+        }
     }, [selected, activeSectionId]);
 
     function send(method: 'POST' | 'PUT', url: string, body?: unknown): Promise<Response> {
@@ -111,7 +200,12 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
         const response = await send('POST', `${apiBase}/inspections`, { property_id: newPropertyId, phase: newPhase });
 
         if (!response.ok) {
-            setError('Could not start the inspection.');
+            const body = (await response.json().catch(() => null)) as {
+                message?: string;
+                code?: string;
+            } | null;
+            const message = body?.message ?? 'Could not start the inspection.';
+            setError(body?.code === 'plan_limit' ? `${message} View “Plan and usage” below to upgrade.` : message);
             return;
         }
 
@@ -122,7 +216,17 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
     }
 
     function updateItem(index: number, patch: Partial<InspectionItem>): void {
-        setDrafts((current) => current.map((item, position) => (position === index ? { ...item, ...patch } : item)));
+        const next = drafts.map((item, position) => (position === index ? { ...item, ...patch } : item));
+        setDrafts(next);
+
+        if (selected !== null && activeSectionId !== null) {
+            void saveRoomDraft({
+                inspectionId: selected.id,
+                sectionId: activeSectionId,
+                items: next,
+                updatedAt: new Date().toISOString(),
+            }).then(refreshSync);
+        }
     }
 
     function addItem(): void {
@@ -153,6 +257,8 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
 
         const payload = (await response.json()) as { data: Inspection };
         setInspections((current) => current.map((inspection) => (inspection.id === payload.data.id ? payload.data : inspection)));
+        await dropRoomDraft(selected.id, activeSectionId);
+        refreshSync();
     }
 
     async function reloadSelected(): Promise<void> {
@@ -215,19 +321,14 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
         }
 
         setSubmitErrors([]);
-        const response = await send('POST', `${apiBase}/inspections/${selected.id}/submit`);
-        const payload = (await response.json().catch(() => null)) as
-            | { data?: Inspection; errors?: string[]; message?: string }
-            | null;
+        await queueSubmission(selected.id);
+        refreshSync();
+        setSyncKey((current) => current + 1);
 
-        if (!response.ok) {
-            setSubmitErrors(payload?.errors ?? [payload?.message ?? 'Could not submit the inspection.']);
-            return;
-        }
+        const result = await runSync();
 
-        if (payload?.data !== undefined) {
-            const fresh = payload.data;
-            setInspections((current) => current.map((inspection) => (inspection.id === fresh.id ? fresh : inspection)));
+        if (result.errors.length > 0) {
+            setSubmitErrors(result.errors);
         }
     }
 
@@ -244,6 +345,26 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
                     ))}
                 </ul>
             )}
+            <div role="status" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs">
+                <span>
+                    {!online && 'Offline — '}
+                    {sync.photos === 0 && sync.submissions === 0 && sync.drafts === 0
+                        ? 'All changes synced.'
+                        : `${sync.photos} photo(s), ${sync.drafts} room change(s), ${sync.submissions} submission(s) waiting to sync.`}
+                </span>
+                <Button
+                    variant="secondary"
+                    disabled={syncing || !online}
+                    onClick={() => void runSync().then((result) => {
+                        if (result.errors.length > 0) {
+                            setSubmitErrors(result.errors);
+                        }
+                    })}
+                >
+                    Sync now
+                </Button>
+            </div>
+            {syncNotice !== null && <p role="status" className="mt-2 text-xs text-amber-700">{syncNotice}</p>}
             <div className="mt-4 flex flex-wrap items-end gap-3">
                 <label className="text-sm">
                     Property
@@ -355,10 +476,13 @@ export default function InspectionPanel({ apiBase, organisationId }: Props) {
                                 <ItemPhotos
                                     apiBase={apiBase}
                                     headers={headers}
+                                    inspectionId={selected.id}
                                     itemId={item.id}
                                     photos={photoMap[item.id] ?? item.photos ?? []}
                                     editable={editable}
                                     onChanged={() => void reloadSelected()}
+                                    syncKey={syncKey}
+                                    onSyncChanged={refreshSync}
                                 />
                             )}
                         </div>

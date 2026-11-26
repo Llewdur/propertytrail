@@ -9,5 +9,5 @@ interface WhatsAppAdapterInterface
     /**
      * @return array<string, mixed>
      */
-    public function sendMessage(string $recipient, string $message): array;
+    public function sendMessage(string $idempotencyKey, string $recipient, string $message): array;
 }

@@ -13,9 +13,8 @@ use App\Models\InspectionReport;
 use App\Models\InspectionSection;
 use App\Models\InspectionSignature;
 use App\Models\Organisation;
+use App\Services\Billing\EntitlementService;
 use App\Support\Legal;
-use Dompdf\Dompdf;
-use Dompdf\Options;
 use Illuminate\Support\Facades\DB;
 
 final class ReportService
@@ -26,6 +25,10 @@ final class ReportService
     public function __construct(
         private readonly StorageAdapterInterface $storage,
         private readonly ComparisonService $comparison,
+        private readonly ReportBrandingService $branding,
+        private readonly DeliveryService $deliveries,
+        private readonly EntitlementService $billing,
+        private readonly PdfRenderer $pdf,
     ) {}
 
     public function findFor(Inspection $inspection): ?InspectionReport
@@ -54,7 +57,13 @@ final class ReportService
         $bytes = $this->render($inspection, $reference);
         $path = sprintf('reports/%d/%d/v%d.pdf', $inspection->organisation_id, $inspection->id, $version);
 
-        return DB::transaction(function () use ($inspection, $version, $reference, $bytes, $path): ?InspectionReport {
+        $report = DB::transaction(function () use (
+            $inspection,
+            $version,
+            $reference,
+            $bytes,
+            $path,
+        ): ?InspectionReport {
             $locked = Inspection::query()->lockForUpdate()->find($inspection->id);
 
             if ($locked === null || $this->findFor($locked) !== null) {
@@ -79,6 +88,10 @@ final class ReportService
 
             return $report;
         });
+
+        $this->deliveries->afterLock($inspection, $report);
+
+        return $report;
     }
 
     /** The stored bytes, exactly as locked. */
@@ -97,22 +110,12 @@ final class ReportService
         $inspection->payload();
 
         $organisation = Organisation::query()->find($inspection->organisation_id);
+        $this->billing->recordReportUsage($organisation, $inspection->id);
+
         $signatures = $inspection->signatures->keyBy('party');
 
         $comparison = $this->comparison->compare($inspection);
-        $markers = [];
-
-        foreach ($comparison['rows'] ?? [] as $row) {
-            if ($row['outgoing_item_id'] === null) {
-                continue;
-            }
-
-            $markers[$row['outgoing_item_id']] = match ($row['category']) {
-                ComparisonService::EXISTING_DEFECT => '(as at move-in)',
-                ComparisonService::POTENTIAL_NEW_DAMAGE => '(potential new damage)',
-                default => null,
-            };
-        }
+        $markers = $this->comparison->markers($comparison);
 
         $rooms = $inspection->sections->map(fn(InspectionSection $section): array => [
             'title' => $section->title,
@@ -137,20 +140,11 @@ final class ReportService
             'comparison' => $comparison,
             'discrepancyCategories' => ComparisonService::CATEGORY_LABELS,
             'footer' => Legal::REPORT_DISCLAIMER,
+            'branding' => $this->branding->forOrganisation($organisation),
             'generatedAt' => now()->toIso8601String(),
         ])->render();
 
-        $options = new Options();
-        $options->set('isRemoteEnabled', false);
-        $options->set('isPhpEnabled', false);
-        $options->set('defaultFont', 'DejaVu Sans');
-
-        $dompdf = new Dompdf($options);
-        $dompdf->setPaper('A4');
-        $dompdf->loadHtml($html);
-        $dompdf->render();
-
-        return (string) $dompdf->output();
+        return $this->pdf->render($html);
     }
 
     /** @return list<array{caption: string, data_uri: string}> */

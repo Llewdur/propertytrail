@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# Pre-push: should the browser lane be skipped? (ZST-1169)
+#
+# Usage: browser-lane-skip REPO_ROOT SKIP_SLOW [REPO_NAME]
+# Exit 0 = skip the browser lane, 1 = run it.
+#
+# Batch mode is per BOARD on Kadro (its `batch_mode` flag) and every fleet board has it
+# on, so every repo under the fleet directory counts as in batch mode. That is the
+# cached board value; no network call sits in the push path. The owner lifts it per repo
+# by creating ~/.claude/browser-allowed/<repo> (the same file the user-level
+# no-browser-in-batch-mode hook reads). Outside the fleet there is no board to read, so
+# the legacy SKIP_SLOW_TESTS switch (2nd argument) decides.
+#
+# The two switches the refusal text in bin/zekini-push names always win: an explicit
+# ZEKINI_FULL_GATE=true, or SKIP_SLOW_TESTS=false, runs the lane.
+#
+# REPO_NAME is the repo's name as the allow file is keyed (the origin URL's last
+# segment). A worktree such as voc-b172 has another directory name than its repo, so the
+# caller passes the name; it falls back to the directory's basename.
+#
+# Environment (overridable for the fixture):
+#   ZEKINI_FLEET_DIR         ~/projects/zekini
+#   ZEKINI_BROWSER_ALLOWED   ~/.claude/browser-allowed
+#
+set -uo pipefail
+
+repo="${1:-}"
+skip_slow="${2:-}"
+name="${3:-}"
+fleet="${ZEKINI_FLEET_DIR:-$HOME/projects/zekini}"
+allowed="${ZEKINI_BROWSER_ALLOWED:-$HOME/.claude/browser-allowed}"
+
+case "${ZEKINI_FULL_GATE:-}" in
+  1 | true | TRUE | True | yes | on) exit 1 ;;
+esac
+case "${SKIP_SLOW_TESTS:-}" in
+  0 | false | FALSE | False | no | off) exit 1 ;;
+esac
+
+if [ -n "$repo" ]; then
+  # The allow file is keyed by repo name, so only a fleet repo consults it.
+  case "$repo/" in
+    "${fleet%/}/"*)
+      [ -n "$name" ] || name="$(basename "$repo")"
+      [ -e "$allowed/$name" ] && exit 1
+      exit 0
+      ;;
+  esac
+fi
+
+case "$skip_slow" in
+  1 | true | TRUE | True | yes | on) exit 0 ;;
+esac
+exit 1

@@ -7,8 +7,11 @@ namespace App\Services;
 use App\Models\AuditLog;
 use App\Models\Inspection;
 use App\Models\InspectionSignature;
+use App\Models\Organisation;
 use App\Models\SigningAccessLog;
 use App\Models\SigningToken;
+use App\Models\UsageRecord;
+use App\Services\Billing\EntitlementService;
 use App\Support\Tenancy\CurrentOrganisation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -28,6 +31,7 @@ final class SigningService
     public function __construct(
         private readonly CurrentOrganisation $currentOrganisation,
         private readonly ReportService $reports,
+        private readonly EntitlementService $billing,
     ) {}
 
     /**
@@ -44,7 +48,12 @@ final class SigningService
             throw new InvalidArgumentException('The ' . $party . ' has already signed this inspection.');
         }
 
-        return DB::transaction(static function () use ($inspection, $party): array {
+        $organisation = Organisation::query()->find($inspection->organisation_id);
+        if ($organisation !== null) {
+            $this->billing->assertCan('signing_link', $organisation);
+        }
+
+        return DB::transaction(function () use ($inspection, $party, $organisation): array {
             SigningToken::query()
                 ->where('inspection_id', $inspection->id)
                 ->where('party', $party)
@@ -60,6 +69,15 @@ final class SigningService
                 'token_hash' => SigningToken::hash($plain),
                 'expires_at' => now()->addDays(self::LINK_TTL_DAYS),
             ]);
+
+            if ($organisation !== null) {
+                $this->billing->recordUsage(
+                    UsageRecord::KIND_SIGNING_LINK,
+                    $organisation,
+                    $record->id,
+                    'signing_token',
+                );
+            }
 
             return ['token' => $plain, 'expires_at' => $record->expires_at];
         });

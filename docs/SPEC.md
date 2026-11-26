@@ -414,19 +414,24 @@ Configurable per organisation. Avoid notification spam.
 
 ---
 
-## 19. Subscriptions and pricing (provisional)
-Initial deployment is internal. Pricing is provisional and must be validated against operating costs and competitors. Plans are configurable and **never hardcoded**.
+## 19. Subscriptions and pricing (decided — PTR-15)
+Initial deployment is internal and commercialisation is Phase 7 (§23). The model is **hybrid**: a free single-inspection tier as the growth hook, plus the property-count paid tiers for owners with portfolios. Plans are configurable in `config/plans.php` and **never hardcoded**.
 
 | Plan | Price | Scope |
 |---|---|---|
+| Free | R0 | 1 inspection total; watermarked report; no card to start |
 | Starter | R149/month | Up to 3 properties; basic inspections; photo evidence; basic reports; maintenance requests; limited users |
 | Landlord | R349/month | Up to 10 properties; long-term inspections; interim scheduling; inventory; maintenance; historical comparisons; PDF reports |
 | Professional | R699/month | Up to 30 properties; long-term and short-term; occupancy; inventory reconciliation; contractor access; advanced reporting; more users; AI-assisted analysis |
 | Portfolio | From R1,499/month | Up to 100 properties; multi-user admin; advanced permissions; contractor management; insurance evidence packs; AI; higher storage and usage |
 
-Additional property blocks and usage-based services may be added.
+Monthly and annual subscriptions; agencies get bespoke plans. Additional property blocks and usage-based services may be added.
 
-**Billing:** use the existing Zekini accounting and billing product. Monthly and annual subscriptions; trials; upgrades/downgrades; property limits; user limits; storage limits; usage tracking; suspension and reactivation. No separate invoicing engine.
+**What counts as an inspection.** Each move-in/move-out inspection counts once, when it is created — including a draft that is later deleted. Rooms, photos and signatures inside it are free.
+
+**Downgrade deletes nothing.** When a plan ends or is downgraded, reports stay openable and downloadable, a report locked on signature stays exactly as signed, and signing links already sent keep working. The lower plan simply cannot start new inspections past its allowance.
+
+**Billing:** use the existing Zekini accounting and billing product. Trials; upgrades/downgrades; property limits; user limits; storage limits; usage tracking; suspension and reactivation. No separate invoicing engine. Plan prices, limits, counting and downgrade rules are configuration in `config/plans.php`; PTR-16 owns enforcement and the accounting integration.
 
 ---
 

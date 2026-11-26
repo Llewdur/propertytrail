@@ -8,8 +8,11 @@ use App\Factories\PropertyWriteFactory;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StorePropertyRequest;
 use App\Http\Requests\UpdatePropertyRequest;
+use App\Models\Property;
+use App\Models\User;
 use App\Repositories\PropertyRepository;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 final class PropertyController extends Controller
@@ -19,13 +22,20 @@ final class PropertyController extends Controller
         private readonly PropertyWriteFactory $factory,
     ) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->properties->all()]);
+        $this->authorize('viewAny', Property::class);
+
+        /** @var User $user */
+        $user = $request->user();
+
+        return response()->json(['data' => $this->properties->allForUser($user)]);
     }
 
     public function store(StorePropertyRequest $request): JsonResponse
     {
+        $this->authorize('create', Property::class);
+
         /** @var array<string, mixed> $data */
         $data = $request->validated();
         $property = $this->factory->create($data);
@@ -41,6 +51,8 @@ final class PropertyController extends Controller
             return response()->json(['message' => 'Property not found.'], Response::HTTP_NOT_FOUND);
         }
 
+        $this->authorize('view', $model);
+
         return response()->json(['data' => $model]);
     }
 
@@ -51,6 +63,8 @@ final class PropertyController extends Controller
         if ($model === null) {
             return response()->json(['message' => 'Property not found.'], Response::HTTP_NOT_FOUND);
         }
+
+        $this->authorize('update', $model);
 
         /** @var array<string, mixed> $data */
         $data = $request->validated();
@@ -67,6 +81,7 @@ final class PropertyController extends Controller
             return response()->json(['message' => 'Property not found.'], Response::HTTP_NOT_FOUND);
         }
 
+        $this->authorize('delete', $model);
         $this->factory->delete($model);
 
         return response()->json(null, Response::HTTP_NO_CONTENT);

@@ -36,6 +36,16 @@ final class ConditionVocabulary
         return array_keys(self::LABELS);
     }
 
+    /** @return list<array{key: string, label: string, dispute_safe: string}> */
+    public static function all(): array
+    {
+        return array_map(static fn(string $key): array => [
+            'key' => $key,
+            'label' => self::LABELS[$key],
+            'dispute_safe' => self::DISPUTE_SAFE[$key],
+        ], self::keys());
+    }
+
     public static function isValid(string $key): bool
     {
         return array_key_exists($key, self::LABELS);

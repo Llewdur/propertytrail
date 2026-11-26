@@ -48,6 +48,7 @@ beforeEach(function (): void {
     resetTenant();
     app()->instance(StorageAdapterInterface::class, new FakeStorageAdapter());
     ['organisation' => $organisation] = tenantUser('compare');
+    $organisation->forceFill(['settings' => ['plan' => 'starter']])->save();
     app(CurrentOrganisation::class)->set($organisation->id);
     $this->property = app(PropertyWriteFactory::class)->create(propertyPayload('Compare House'));
     $this->lease = app(LeaseWriteFactory::class)->create([

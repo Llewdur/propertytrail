@@ -8,6 +8,8 @@
     body { font-family: 'DejaVu Sans', sans-serif; font-size: 10px; color: #1f2933; }
     .header { position: fixed; top: -22mm; left: 0; right: 0; border-bottom: 1px solid #cbd2d9; padding-bottom: 4px; }
     .footer { position: fixed; bottom: -17mm; left: 0; right: 0; border-top: 1px solid #cbd2d9; padding-top: 4px; font-size: 8px; color: #52606d; }
+    .logo { max-height: 22px; max-width: 120px; vertical-align: middle; background: #fff; }
+    .watermark { position: fixed; top: 40%; left: 0; right: 0; text-align: center; font-size: 44px; color: #e4e7eb; transform: rotate(-30deg); }
     .pagenum:before { content: counter(page); }
     h1 { font-size: 16px; margin: 0 0 4px 0; }
     h2 { font-size: 12px; margin: 14px 0 4px 0; border-bottom: 1px solid #e4e7eb; padding-bottom: 2px; }
@@ -24,7 +26,15 @@
 </style>
 </head>
 <body>
+@if ($branding['watermark'])
+    <div class="watermark">{{ $branding['watermark'] }}</div>
+@endif
 <div class="header">
+    @if ($branding['logo_data_uri'])
+        <img class="logo" src="{{ $branding['logo_data_uri'] }}" alt="">
+    @else
+        <strong>PropertyTrail</strong> &middot;
+    @endif
     <strong>{{ $organisationName }}</strong>
     <span class="muted"> &middot; {{ ucfirst($inspection->phase) }} inspection &middot; {{ $reference }}</span>
 </div>
