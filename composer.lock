@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c8bd09a368f2b16840548cc61d589881",
+    "content-hash": "71c0afbd94ae6297313650564dff6618",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -8764,11 +8764,11 @@
         },
         {
             "name": "zekini/auth",
-            "version": "v0.5.0",
+            "version": "v0.6.0",
             "source": {
                 "type": "git",
                 "url": "git@github.com:zekini-com/auth.git",
-                "reference": "197152e988c0b42006fc910cf4d580d8bc29992e"
+                "reference": "e72a5b96dd0e2438985b678749c57eabe956468e"
             },
             "require": {
                 "illuminate/contracts": "^11.0 || ^12.0 || ^13.0",
@@ -8776,6 +8776,7 @@
                 "illuminate/http": "^11.0 || ^12.0 || ^13.0",
                 "illuminate/support": "^11.0 || ^12.0 || ^13.0",
                 "laravel/fortify": "^1.42",
+                "laravel/passkeys": "^0.3.0",
                 "laravel/sanctum": "^4.4",
                 "php": "^8.4",
                 "zekini/bot-check": "^1.1"
@@ -8830,7 +8831,7 @@
                 "turnstile",
                 "two-factor"
             ],
-            "time": "2026-11-23T06:07:17+00:00"
+            "time": "2026-11-26T05:36:48+00:00"
         },
         {
             "name": "zekini/bot-check",
