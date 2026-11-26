@@ -50,6 +50,7 @@ final class ComparisonService
             ->where('lease_id', $outgoing->lease_id)
             ->where('phase', Inspection::PHASE_INCOMING)
             ->where('status', Inspection::STATUS_SUBMITTED)
+            ->where('submitted_at', '<=', $outgoing->submitted_at ?? now())
             ->orderByDesc('submitted_at')
             ->orderByDesc('id')
             ->first();
@@ -79,15 +80,11 @@ final class ComparisonService
         $outgoing->loadMissing('sections.items');
 
         $rows = [];
-        $usedSections = [];
         $usedItems = [];
+        $pairs = $this->pairSections($baseline, $outgoing);
 
         foreach ($outgoing->sections as $section) {
-            $incomingSection = $this->matchingSection($baseline, $section, $usedSections);
-
-            if ($incomingSection !== null) {
-                $usedSections[] = $incomingSection->id;
-            }
+            $incomingSection = $pairs[$section->id] ?? null;
 
             foreach ($section->items as $item) {
                 $before = $this->matchingItem($incomingSection, $item, $usedItems);
@@ -240,28 +237,45 @@ final class ComparisonService
         return null;
     }
 
-    /** @param list<int> $usedSections */
-    private function matchingSection(
-        Inspection $baseline,
-        InspectionSection $section,
-        array $usedSections,
-    ): ?InspectionSection {
-        $available = $baseline->sections->reject(static fn(InspectionSection $candidate): bool => in_array(
-            $candidate->id,
-            $usedSections,
-            true,
-        ));
+    /**
+     * Pairs every same-room match first, so a title match can never take a
+     * baseline section that belongs to another outgoing room.
+     *
+     * @return array<int, InspectionSection> baseline sections keyed by move-out section id
+     */
+    private function pairSections(Inspection $baseline, Inspection $outgoing): array
+    {
+        $matchers = [
+            static fn(InspectionSection $before, InspectionSection $after): bool => (
+                $after->area_room_id !== null
+                && $before->area_room_id === $after->area_room_id
+            ),
+            static fn(InspectionSection $before, InspectionSection $after): bool => (
+                mb_strtolower(trim($before->title)) === mb_strtolower(trim($after->title))
+            ),
+        ];
+        $pairs = [];
+        $used = [];
 
-        return (
-            $available->first(
-                static fn(InspectionSection $candidate): bool => (
-                    $section->area_room_id !== null && $candidate->area_room_id === $section->area_room_id
-                ),
-            ) ?? $available->first(
-                static fn(InspectionSection $candidate): bool => (
-                    mb_strtolower(trim($candidate->title)) === mb_strtolower(trim($section->title))
-                ),
-            )
-        );
+        foreach ($matchers as $matches) {
+            foreach ($outgoing->sections as $after) {
+                if (array_key_exists($after->id, $pairs)) {
+                    continue;
+                }
+
+                foreach ($baseline->sections as $before) {
+                    if (array_key_exists($before->id, $used) || !$matches($before, $after)) {
+                        continue;
+                    }
+
+                    $pairs[$after->id] = $before;
+                    $used[$before->id] = true;
+
+                    break;
+                }
+            }
+        }
+
+        return $pairs;
     }
 }

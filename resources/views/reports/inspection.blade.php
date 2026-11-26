@@ -122,20 +122,20 @@
             </tbody>
         </table>
         @if ($comparison['evidence_gaps'] > 0)
-            <p><strong>{{ $comparison['evidence_gaps'] }}</strong> item(s) are rated Poor or Damaged without a move-in photo to compare against.</p>
+            <p><strong>{{ $comparison['evidence_gaps'] }}</strong> item(s) are rated Poor or Damaged without a move-in photo attached to that item.</p>
         @endif
         <h2>Condition changes</h2>
         <table>
             <thead><tr><th>Room</th><th>Item</th><th>Move-in</th><th>Move-out</th><th>Category</th></tr></thead>
             <tbody>
             @foreach ($comparison['rows'] as $row)
-                @continue ($row['category'] === 'unchanged')
+                @continue ($row['category'] === \App\Services\ComparisonService::UNCHANGED)
                 <tr>
                     <td>{{ $row['room'] }}</td>
                     <td>{{ $row['item'] }}</td>
                     <td>{{ $row['incoming'] ? ucfirst($row['incoming']) : 'Not recorded' }}</td>
                     <td>{{ $row['outgoing'] ? ucfirst($row['outgoing']) : 'Not rated' }}</td>
-                    <td>{{ $row['label'] }}@if ($row['evidence_gap']) &middot; no move-in photo @endif</td>
+                    <td>{{ $row['label'] }}@if ($row['evidence_gap']) &middot; no move-in item photo @endif</td>
                 </tr>
             @endforeach
             </tbody>

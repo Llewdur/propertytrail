@@ -102,41 +102,11 @@ const HEADER_NAME_CLASS = '[A-Za-z][A-Za-z0-9_\-]*';
  * real usage the way `type`/`id`/`version` are.
  */
 const METADATA_AFTER_SECRET_WORD = [
-    'type',
-    'kind',
-    'expiry',
-    'expires',
-    'expiration',
-    'ttl',
-    'ring',
-    'identifier',
-    'id',
-    'name',
-    'label',
-    'length',
-    'size',
-    'bits',
-    'algorithm',
-    'alg',
-    'version',
-    'format',
-    'encoding',
-    'usage',
-    'policy',
-    'rotation',
-    'count',
-    'index',
-    'arn',
-    'status',
-    'enabled',
-    'required',
-    'hint',
-    'prefix',
-    'suffix',
-    'header',
-    'param',
-    'field',
-    'source',
+    'type', 'kind', 'expiry', 'expires', 'expiration', 'ttl', 'ring',
+    'identifier', 'id', 'name', 'label', 'length', 'size', 'bits',
+    'algorithm', 'alg', 'version', 'format', 'encoding', 'usage', 'policy',
+    'rotation', 'count', 'index', 'arn', 'status', 'enabled', 'required',
+    'hint', 'prefix', 'suffix', 'header', 'param', 'field', 'source',
 ];
 
 /**
@@ -393,7 +363,7 @@ function redactPemBlocks(string $text): string
 function pcreOrThrow(?string $result, string $context): string
 {
     if ($result === null || preg_last_error() !== PREG_NO_ERROR) {
-        throw new \RuntimeException($context . ': PCRE failure (' . preg_last_error_msg() . ')');
+        throw new \RuntimeException($context.': PCRE failure ('.preg_last_error_msg().')');
     }
 
     return $result;
@@ -403,7 +373,7 @@ function pcreOrThrow(?string $result, string $context): string
 function pcreMatchOrThrow(int|false $result, string $context): int
 {
     if ($result === false || preg_last_error() !== PREG_NO_ERROR) {
-        throw new \RuntimeException($context . ': PCRE failure (' . preg_last_error_msg() . ')');
+        throw new \RuntimeException($context.': PCRE failure ('.preg_last_error_msg().')');
     }
 
     return $result;
@@ -413,7 +383,7 @@ function pcreMatchOrThrow(int|false $result, string $context): int
 function pcreSplitOrThrow(array|false $result, string $context): array
 {
     if ($result === false || preg_last_error() !== PREG_NO_ERROR) {
-        throw new \RuntimeException($context . ': PCRE failure (' . preg_last_error_msg() . ')');
+        throw new \RuntimeException($context.': PCRE failure ('.preg_last_error_msg().')');
     }
 
     return $result;
@@ -482,7 +452,7 @@ function redactCompletePemPairs(string $text): string
 
         // The rest of the match, END included, as the regex's callback read it:
         // a same-label BEGIN whose closing dashes open the END still counts.
-        $matchEnd = $ends[$label][$i] + strlen('-----END ' . $label . '-----');
+        $matchEnd = $ends[$label][$i] + strlen('-----END '.$label.'-----');
         $marker = substr($text, $start, $bodyAt - $start);
         $out .= substr($text, $copied, $start - $copied);
         $out .= str_contains(substr($text, $bodyAt, $matchEnd - $bodyAt), $marker)
@@ -491,7 +461,7 @@ function redactCompletePemPairs(string $text): string
         $copied = $cursor = $matchEnd;
     }
 
-    return $out . substr($text, $copied);
+    return $out.substr($text, $copied);
 }
 
 /**
@@ -546,41 +516,38 @@ function joinLinesRestoringTrailingNewline(array $lines, bool $hadTrailingNewlin
 {
     $result = implode("\n", $lines);
 
-    return $hadTrailingNewline ? $result . "\n" : $result;
+    return $hadTrailingNewline ? $result."\n" : $result;
 }
 
 function redactBareEndsPerLine(string $text): string
 {
     [$lines, $hadTrailingNewline] = splitLinesPreservingTrailingNewline($text);
 
-    $out = array_map(
-        static function (string $line): string {
-            // pcreMatchOrThrow, not a bare `=== 0` check (LOU-831's third
-            // round): preg_match_all returns false on a PCRE engine failure,
-            // and `false === 0` is false, so the old check fell through to the
-            // "found matches" branch with $matches[0] UNDEFINED — the foreach
-            // below would have iterated nothing and the line shipped with no
-            // error, exactly the silent-failure shape pcreOrThrow exists to
-            // rule out elsewhere in this file.
-            $count = pcreMatchOrThrow(
-                preg_match_all('/-----END [A-Z0-9 ]+-----/', $line, $matches, PREG_OFFSET_CAPTURE),
-                'bare-END scan',
-            );
-            if ($count === 0) {
-                return $line;
-            }
+    $out = array_map(static function (string $line): string {
+        // pcreMatchOrThrow, not a bare `=== 0` check (LOU-831's third
+        // round): preg_match_all returns false on a PCRE engine failure,
+        // and `false === 0` is false, so the old check fell through to the
+        // "found matches" branch with $matches[0] UNDEFINED — the foreach
+        // below would have iterated nothing and the line shipped with no
+        // error, exactly the silent-failure shape pcreOrThrow exists to
+        // rule out elsewhere in this file.
+        $count = pcreMatchOrThrow(
+            preg_match_all('/-----END [A-Z0-9 ]+-----/', $line, $matches, PREG_OFFSET_CAPTURE),
+            'bare-END scan',
+        );
+        if ($count === 0) {
+            return $line;
+        }
 
-            $redacted = '';
-            $pos = 0;
-            foreach ($matches[0] as [$matchText, $offset]) {
-                $redacted .= '[REDACTED PEM BLOCK]';
-                $pos = $offset + strlen($matchText);
-            }
+        $redacted = '';
+        $pos = 0;
+        foreach ($matches[0] as [$matchText, $offset]) {
+            $redacted .= '[REDACTED PEM BLOCK]';
+            $pos = $offset + strlen($matchText);
+        }
 
-            return $redacted . substr($line, $pos);
-        },
-        $lines,
-    );
+        return $redacted.substr($line, $pos);
+    }, $lines);
 
     return joinLinesRestoringTrailingNewline($out, $hadTrailingNewline);
 }
@@ -610,11 +577,8 @@ function redactUnclosedPemBegins(string $text): string
         // so the BEGIN line prints raw, `$suppressing` never turns on, and
         // every following line of real key material ships in clear at
         // exit 0. Reproduced live against a line at the limit.
-        if (
-            pcreMatchOrThrow(preg_match('/^(.*?)-----BEGIN [A-Z0-9 ]+-----.*$/', $line, $m), 'unclosed-PEM-begin scan')
-            === 1
-        ) {
-            $out[] = $m[1] . '[REDACTED PEM BLOCK]';
+        if (pcreMatchOrThrow(preg_match('/^(.*?)-----BEGIN [A-Z0-9 ]+-----.*$/', $line, $m), 'unclosed-PEM-begin scan') === 1) {
+            $out[] = $m[1].'[REDACTED PEM BLOCK]';
             $suppressing = true;
             $suppressedLines = 0;
             continue;
@@ -685,7 +649,7 @@ function redactDotenvLine(string $line): string
         // <token>` shipped in full whenever no recognized provider-key prefix
         // happened to also catch it.
         if (keyIsAlwaysSecret($key)) {
-            return substr($line, 0, $offset + strlen($key) + 1) . '[REDACTED]';
+            return substr($line, 0, $offset + strlen($key) + 1).'[REDACTED]';
         }
     }
 
@@ -789,15 +753,9 @@ function redactUrlUserinfo(string $line): string
     // every URL that follows `\"` would fix it but would let a password that itself
     // contains `\"` ship its tail, and this file prefers over-redaction to that.
     $userinfoStart = '[A-Za-z][A-Za-z0-9+.\-]*://[^\s/:@]*:';
-    $escaped =
-        '~\\\\(?<q>["\'])('
-        . $userinfoStart
-        . ')(?!\[REDACTED\]@)(?:(?!\\\\\k<q>)[^\s])+?(@)(?!(?:(?!\\\\\k<q>)[^\s])*@)~';
-    $quoted =
-        '~(?<q>["\'])('
-        . $userinfoStart
-        . ')(?!\[REDACTED\]@)(?:\\\\.|(?!\k<q>)[^\s\\\\])+?(@)(?!(?:\\\\.|(?!\k<q>)[^\s\\\\])*@)~';
-    $bare = '~(' . $userinfoStart . ')(?!\[REDACTED\]@)[^\s]+?(@)(?!\S*@)~';
+    $escaped = '~\\\\(?<q>["\'])('.$userinfoStart.')(?!\[REDACTED\]@)(?:(?!\\\\\k<q>)[^\s])+?(@)(?!(?:(?!\\\\\k<q>)[^\s])*@)~';
+    $quoted = '~(?<q>["\'])('.$userinfoStart.')(?!\[REDACTED\]@)(?:\\\\.|(?!\k<q>)[^\s\\\\])+?(@)(?!(?:\\\\.|(?!\k<q>)[^\s\\\\])*@)~';
+    $bare = '~('.$userinfoStart.')(?!\[REDACTED\]@)[^\s]+?(@)(?!\S*@)~';
 
     $line = pcreOrThrow(preg_replace($escaped, '\\\\$1$2[REDACTED]$3', $line), 'URL userinfo escaped-quote pass');
     $line = pcreOrThrow(preg_replace($quoted, '$1$2[REDACTED]$3', $line), 'URL userinfo quoted pass');
@@ -835,7 +793,7 @@ function indexOfMatchingBracket(string $text, int $open, bool $escaped = false):
                 $run = strspn($text, '\\', $i);
                 $beforeQuote = ($text[$i + $run] ?? '') === '"';
                 $i += $run - 1 + ($beforeQuote ? 1 : 0); // land on the quote if there is one, else on the run's last backslash
-                if ($beforeQuote && (!$inString || ($run % 4) === 1)) {
+                if ($beforeQuote && (!$inString || $run % 4 === 1)) {
                     $inString = !$inString;
                 }
 
@@ -880,7 +838,9 @@ function indexOfMatchingBracket(string $text, int $open, bool $escaped = false):
  */
 function redactJsonArrayValues(string $line, bool $escaped = false): string
 {
-    $keyPattern = $escaped ? '/\\\\"(' . KEY_CLASS . ')\\\\"\s*:\s*\[/' : '/"(' . KEY_CLASS . ')"\s*:\s*\[/';
+    $keyPattern = $escaped
+        ? '/\\\\"('.KEY_CLASS.')\\\\"\s*:\s*\[/'
+        : '/"('.KEY_CLASS.')"\s*:\s*\[/';
     $replacement = $escaped ? '[\\"[REDACTED]\\"]' : '["[REDACTED]"]';
 
     $count = pcreMatchOrThrow(
@@ -906,11 +866,11 @@ function redactJsonArrayValues(string $line, bool $escaped = false): string
             continue;
         }
 
-        $out .= substr($line, $pos, $open - $pos) . $replacement;
+        $out .= substr($line, $pos, $open - $pos).$replacement;
         $pos = $close === null ? strlen($line) : $close + 1;
     }
 
-    return $out . substr($line, $pos);
+    return $out.substr($line, $pos);
 }
 
 /**
@@ -960,7 +920,7 @@ function redactMultilineSecretArray(array $lines, int $i): ?array
     }
 
     pcreMatchOrThrow(
-        preg_match_all('/"(' . KEY_CLASS . ')"\s*:\s*\[/', $first, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE),
+        preg_match_all('/"('.KEY_CLASS.')"\s*:\s*\[/', $first, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE),
         'multi-line array key scan',
     );
 
@@ -995,7 +955,7 @@ function redactArraySpanningLines(array $lines, int $i, int $open): ?array
     $close = null;
     foreach ([8, 64, 512, 5000] as $size) {
         $window = array_slice($lines, $i + 1, $size);
-        $buffer = $rest . "\n" . implode("\n", $window);
+        $buffer = $rest."\n".implode("\n", $window);
         $close = indexOfMatchingBracket($buffer, 0);
         if ($close !== null || count($window) < $size) {
             break;
@@ -1014,15 +974,7 @@ function redactArraySpanningLines(array $lines, int $i, int $open): ?array
 
         $eol = str_ends_with($first, "\r") ? "\r" : '';
 
-        return [
-            $prefix
-                . '[REDACTED ARRAY -- TRUNCATED, no closing bracket found within '
-                . count($window)
-                . ' lines]'
-                . $eol,
-            1 + count($window),
-            false,
-        ];
+        return [$prefix.'[REDACTED ARRAY -- TRUNCATED, no closing bracket found within '.count($window).' lines]'.$eol, 1 + count($window), false];
     }
 
     $before = substr($buffer, 0, $close);
@@ -1033,7 +985,7 @@ function redactArraySpanningLines(array $lines, int $i, int $open): ?array
 
     $column = $close - (int) strrpos($before, "\n") - 1;
 
-    return [$prefix . '["[REDACTED]"]' . substr($window[$closingIndex], $column + 1), $closingIndex + 2, true];
+    return [$prefix.'["[REDACTED]"]'.substr($window[$closingIndex], $column + 1), $closingIndex + 2, true];
 }
 
 /**
@@ -1052,7 +1004,7 @@ function escapedJsonStringBody(): string
 {
     $bs = '\\\\';
 
-    return '(?:[^' . $bs . ']++|' . $bs . $bs . $bs . $bs . '|' . $bs . $bs . $bs . '"|' . $bs . '(?!"))*+';
+    return '(?:[^'.$bs.']++|'.$bs.$bs.$bs.$bs.'|'.$bs.$bs.$bs.'"|'.$bs.'(?!"))*+';
 }
 
 /**
@@ -1095,17 +1047,10 @@ function redactJsonSameLine(string $line): string
     }
 
     if (str_contains($line, '\\"')) {
-        $escapedString = '/\\\\"(' . KEY_CLASS . ')\\\\"(\s*:\s*)\\\\"(' . escapedJsonStringBody() . ')\\\\"/';
-        $line = pcreOrThrow(
-            preg_replace_callback(
-                $escapedString,
-                static function (array $m): string {
-                    return keyIsAlwaysSecret($m[1]) ? '\\"' . $m[1] . '\\"' . $m[2] . '\\"[REDACTED]\\"' : $m[0];
-                },
-                $line,
-            ),
-            'JSON same-line escaped-string pass',
-        );
+        $escapedString = '/\\\\"('.KEY_CLASS.')\\\\"(\s*:\s*)\\\\"('.escapedJsonStringBody().')\\\\"/';
+        $line = pcreOrThrow(preg_replace_callback($escapedString, static function (array $m): string {
+            return keyIsAlwaysSecret($m[1]) ? '\\"'.$m[1].'\\"'.$m[2].'\\"[REDACTED]\\"' : $m[0];
+        }, $line), 'JSON same-line escaped-string pass');
 
         // Arrays, escaped form, by the same string- and depth-aware scanner as the
         // plain form: numbers, nested arrays and mixed elements all redact.
@@ -1117,18 +1062,11 @@ function redactJsonSameLine(string $line): string
     // exhausted PCRE's JIT stack), and a secret array can nest.
     $line = redactJsonArrayValues($line);
 
-    $string = '/"(' . KEY_CLASS . ')"(\s*:\s*)"((?:\\\\.|[^"\\\\])*)"/';
+    $string = '/"('.KEY_CLASS.')"(\s*:\s*)"((?:\\\\.|[^"\\\\])*)"/';
 
-    return pcreOrThrow(
-        preg_replace_callback(
-            $string,
-            static function (array $m): string {
-                return keyIsAlwaysSecret($m[1]) ? '"' . $m[1] . '"' . $m[2] . '"[REDACTED]"' : $m[0];
-            },
-            $line,
-        ),
-        'JSON same-line pass',
-    );
+    return pcreOrThrow(preg_replace_callback($string, static function (array $m): string {
+        return keyIsAlwaysSecret($m[1]) ? '"'.$m[1].'"'.$m[2].'"[REDACTED]"' : $m[0];
+    }, $line), 'JSON same-line pass');
 }
 
 /**
@@ -1150,10 +1088,7 @@ function redactJsonPrettyPair(string $keyLine, string $valueLine): ?array
     // throws, main() withholds the WHOLE capture and exits non-zero — the
     // same fail-closed contract every other PCRE call in this file already
     // has, not a new one invented for this pair.
-    if (
-        pcreMatchOrThrow(preg_match('/^(\s*)"(' . KEY_CLASS . ')"\s*:\s*$/', $keyLine, $km), 'JSON-pretty key line')
-        !== 1
-    ) {
+    if (pcreMatchOrThrow(preg_match('/^(\s*)"('.KEY_CLASS.')"\s*:\s*$/', $keyLine, $km), 'JSON-pretty key line') !== 1) {
         return null;
     }
     if (!keyIsAlwaysSecret($km[2])) {
@@ -1163,21 +1098,11 @@ function redactJsonPrettyPair(string $keyLine, string $valueLine): ?array
     // / null — found live by Mail, ZST-335 follow-up: a secret rendered as
     // a bare numeric PIN or feature-flag boolean was never covered, since
     // this rule required the value to be a quoted string).
-    if (
-        pcreMatchOrThrow(
-            preg_match('/^(\s*)"(?:\\\\.|[^"\\\\])*"(\s*,?\s*)$/', $valueLine, $vm),
-            'JSON-pretty quoted value line',
-        ) === 1
-    ) {
-        return [$keyLine, $vm[1] . '"[REDACTED]"' . $vm[2]];
+    if (pcreMatchOrThrow(preg_match('/^(\s*)"(?:\\\\.|[^"\\\\])*"(\s*,?\s*)$/', $valueLine, $vm), 'JSON-pretty quoted value line') === 1) {
+        return [$keyLine, $vm[1].'"[REDACTED]"'.$vm[2]];
     }
-    if (
-        pcreMatchOrThrow(
-            preg_match('/^(\s*)(?:-?\d+(?:\.\d+)?|true|false|null)(\s*,?\s*)$/', $valueLine, $vm),
-            'JSON-pretty scalar value line',
-        ) === 1
-    ) {
-        return [$keyLine, $vm[1] . '"[REDACTED]"' . $vm[2]];
+    if (pcreMatchOrThrow(preg_match('/^(\s*)(?:-?\d+(?:\.\d+)?|true|false|null)(\s*,?\s*)$/', $valueLine, $vm), 'JSON-pretty scalar value line') === 1) {
+        return [$keyLine, $vm[1].'"[REDACTED]"'.$vm[2]];
     }
 
     return null;
@@ -1199,24 +1124,15 @@ function redactJsonPrettyPair(string $keyLine, string $valueLine): ?array
 function redactArrayDumpLine(string $line): string
 {
     $patterns = [
-        '/(["\'])(' . KEY_CLASS . ')\1(\s*=>\s*)"((?:\\\\.|[^"\\\\])*)"/',
-        '/(["\'])(' . KEY_CLASS . ')\1(\s*=>\s*)\'((?:\\\\.|[^\'\\\\])*)\'/',
+        '/(["\'])('.KEY_CLASS.')\1(\s*=>\s*)"((?:\\\\.|[^"\\\\])*)"/',
+        '/(["\'])('.KEY_CLASS.')\1(\s*=>\s*)\'((?:\\\\.|[^\'\\\\])*)\'/',
     ];
 
     foreach ($patterns as $pattern) {
         $valueQuote = str_contains($pattern, '"((?:') ? '"' : "'";
-        $line = pcreOrThrow(
-            preg_replace_callback(
-                $pattern,
-                static function (array $m) use ($valueQuote): string {
-                    return keyIsAlwaysSecret($m[2])
-                        ? $m[1] . $m[2] . $m[1] . $m[3] . $valueQuote . '[REDACTED]' . $valueQuote
-                        : $m[0];
-                },
-                $line,
-            ),
-            'array-dump pass',
-        );
+        $line = pcreOrThrow(preg_replace_callback($pattern, static function (array $m) use ($valueQuote): string {
+            return keyIsAlwaysSecret($m[2]) ? $m[1].$m[2].$m[1].$m[3].$valueQuote.'[REDACTED]'.$valueQuote : $m[0];
+        }, $line), 'array-dump pass');
     }
 
     return $line;
@@ -1284,7 +1200,7 @@ function redactArrayDumpLine(string $line): string
 function redactPrintRLine(string $line): string
 {
     $count = pcreMatchOrThrow(
-        preg_match_all('/\[(' . KEY_CLASS . ')\]\s*=>\s*/', $line, $matches, PREG_OFFSET_CAPTURE),
+        preg_match_all('/\[('.KEY_CLASS.')\]\s*=>\s*/', $line, $matches, PREG_OFFSET_CAPTURE),
         'print_r key scan',
     );
     if ($count === 0) {
@@ -1319,11 +1235,12 @@ function redactPrintRLine(string $line): string
         // O(n²) work — 20k pairs (~330KB) took 0.34s, 200k didn't finish in
         // 60s. "Array (" is 7 bytes; nothing legitimate needs more than a
         // handful of characters of slack for the `\s*`.
-        $looksNested =
-            pcreMatchOrThrow(preg_match('/^Array\s*\(/', substr($line, $arrowEnd, 16)), 'print_r nested-value check')
-            === 1;
+        $looksNested = pcreMatchOrThrow(
+            preg_match('/^Array\s*\(/', substr($line, $arrowEnd, 16)),
+            'print_r nested-value check',
+        ) === 1;
         if ($looksNested) {
-            $out .= $fullMatch . '[REDACTED]';
+            $out .= $fullMatch.'[REDACTED]';
             $pos = $lineLength;
             continue;
         }
@@ -1346,7 +1263,7 @@ function redactPrintRLine(string $line): string
                 $valueEnd--;
             }
         }
-        $out .= $fullMatch . '[REDACTED]';
+        $out .= $fullMatch.'[REDACTED]';
         $pos = $valueEnd;
     }
 
@@ -1373,29 +1290,15 @@ function redactVarDumpPair(string $keyLine, string $valueLine): ?array
     // exhaust PCRE's JIT stack (~10KB, reproduced live) used to read as
     // "not this shape" via a bare `preg_match`, and the raw secret shipped
     // whole at exit 0. Now it throws and main() withholds the capture.
-    if (
-        pcreMatchOrThrow(
-            preg_match(
-                '/^(\s*)\["(' . KEY_CLASS . ')"(?::(?:"[^"]*":)?(?:protected|private))?\]=>\s*$/',
-                $keyLine,
-                $km,
-            ),
-            'var_dump key line',
-        ) !== 1
-    ) {
+    if (pcreMatchOrThrow(preg_match('/^(\s*)\["('.KEY_CLASS.')"(?::(?:"[^"]*":)?(?:protected|private))?\]=>\s*$/', $keyLine, $km), 'var_dump key line') !== 1) {
         return null;
     }
     if (!keyIsAlwaysSecret($km[2])) {
         return null;
     }
 
-    if (
-        pcreMatchOrThrow(
-            preg_match('/^(\s*string\(\d+\)\s*)"(?:\\\\.|[^"\\\\])*"(\s*)$/', $valueLine, $vm),
-            'var_dump string value line',
-        ) === 1
-    ) {
-        return [$keyLine, $vm[1] . '"[REDACTED]"' . $vm[2]];
+    if (pcreMatchOrThrow(preg_match('/^(\s*string\(\d+\)\s*)"(?:\\\\.|[^"\\\\])*"(\s*)$/', $valueLine, $vm), 'var_dump string value line') === 1) {
+        return [$keyLine, $vm[1].'"[REDACTED]"'.$vm[2]];
     }
 
     // Non-string scalar renderings (found live by Mail, ZST-335 follow-up):
@@ -1405,13 +1308,8 @@ function redactVarDumpPair(string $keyLine, string $valueLine): ?array
     // there is no value there to leak. Arrays/objects are multi-line with
     // no single value line to key off — the same accepted gap already
     // documented on `redactArrayDumpLine()`, not fixed here either.
-    if (
-        pcreMatchOrThrow(
-            preg_match('/^(\s*(?:int|float|bool)\()[^()]*(\)\s*)$/', $valueLine, $vm),
-            'var_dump scalar value line',
-        ) === 1
-    ) {
-        return [$keyLine, $vm[1] . '[REDACTED]' . $vm[2]];
+    if (pcreMatchOrThrow(preg_match('/^(\s*(?:int|float|bool)\()[^()]*(\)\s*)$/', $valueLine, $vm), 'var_dump scalar value line') === 1) {
+        return [$keyLine, $vm[1].'[REDACTED]'.$vm[2]];
     }
 
     return null;
@@ -1469,16 +1367,9 @@ function redactBareHeaderLine(string $line): string
     // `Name: value` syntax, so there was nothing left to catch it.
     $pattern = '/^([<>]?\s*)([A-Za-z][A-Za-z0-9_\-]*)(\s*:\s*)(.+)$/';
 
-    return pcreOrThrow(
-        preg_replace_callback(
-            $pattern,
-            static function (array $m): string {
-                return keyIsAlwaysSecret($m[2]) ? $m[1] . $m[2] . $m[3] . '[REDACTED]' : $m[0];
-            },
-            $line,
-        ),
-        'bare-header pass',
-    );
+    return pcreOrThrow(preg_replace_callback($pattern, static function (array $m): string {
+        return keyIsAlwaysSecret($m[2]) ? $m[1].$m[2].$m[3].'[REDACTED]' : $m[0];
+    }, $line), 'bare-header pass');
 }
 
 /**
@@ -1546,12 +1437,7 @@ function redactInlineHeaders(string $line): string
     // `curl -H "X-Api-Key: abc https://x`), because an unterminated quote is
     // not a reason to ship the credential.
     $count = pcreMatchOrThrow(
-        preg_match_all(
-            '/(["\'])(' . HEADER_NAME_CLASS . ')(\s*:\s*)/',
-            $line,
-            $matches,
-            PREG_SET_ORDER | PREG_OFFSET_CAPTURE,
-        ),
+        preg_match_all('/(["\'])('.HEADER_NAME_CLASS.')(\s*:\s*)/', $line, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE),
         'inline quoted-header scan',
     );
     if ($count > 0) {
@@ -1565,22 +1451,19 @@ function redactInlineHeaders(string $line): string
 
             $valueStart = $offset + strlen($opening);
             $close = indexOfClosingQuote($line, $m[1][0], $valueStart);
-            $out .= substr($line, $pos, $valueStart - $pos) . '[REDACTED]';
+            $out .= substr($line, $pos, $valueStart - $pos).'[REDACTED]';
             $pos = $close === false ? strlen($line) : $close;
         }
-        $line = $out . substr($line, $pos);
+        $line = $out.substr($line, $pos);
     }
 
     // 2. An UNQUOTED header argument (`curl -H X-Api-Key:abc`, `--header=Name:v`):
     // the shell allows it when the value has no spaces.
-    $line = pcreOrThrow(
-        preg_replace_callback(
-            '/(?<![\w\-])((?:-H\s*|--header(?:=|\s+)))(' . HEADER_NAME_CLASS . ')(:)([^\s"\']+)/',
-            static fn(array $m): string => keyIsAlwaysSecret($m[2]) ? $m[1] . $m[2] . $m[3] . '[REDACTED]' : $m[0],
-            $line,
-        ),
-        'inline unquoted-header-argument pass',
-    );
+    $line = pcreOrThrow(preg_replace_callback(
+        '/(?<![\w\-])((?:-H\s*|--header(?:=|\s+)))('.HEADER_NAME_CLASS.')(:)([^\s"\']+)/',
+        static fn (array $m): string => keyIsAlwaysSecret($m[2]) ? $m[1].$m[2].$m[3].'[REDACTED]' : $m[0],
+        $line,
+    ), 'inline unquoted-header-argument pass');
 
     // 3. `Authorization:` (the always-secret names) anywhere else on the line,
     // redacted to END OF LINE like the line-start rule, so the credential goes
@@ -1592,10 +1475,7 @@ function redactInlineHeaders(string $line): string
     // command. Idempotent on an already-redacted line. The pattern is built
     // once, not per line.
     static $always = null;
-    $always ??=
-        '/(?<!["\'])\b('
-        . implode('|', array_map(static fn(string $n): string => preg_quote($n, '/'), HEADER_ALWAYS_SECRET))
-        . ')(\s*:\s*).+$/i';
+    $always ??= '/(?<!["\'])\b('.implode('|', array_map(static fn (string $n): string => preg_quote($n, '/'), HEADER_ALWAYS_SECRET)).')(\s*:\s*).+$/i';
 
     return pcreOrThrow(preg_replace($always, '$1$2[REDACTED]', $line), 'inline always-secret-header pass');
 }
@@ -1610,7 +1490,7 @@ function redact(string $text): string
     $count = count($lines);
     while ($i < $count) {
         $line = $lines[$i];
-        $next = ($i + 1) < $count ? $lines[$i + 1] : null;
+        $next = $i + 1 < $count ? $lines[$i + 1] : null;
 
         if ($next !== null && ($pair = redactVarDumpPair($line, $next)) !== null) {
             $out[] = $pair[0];
@@ -1670,7 +1550,7 @@ function main(): int
     try {
         $output = redact($input);
     } catch (\Throwable $e) {
-        fwrite(STDERR, 'redact-secrets: ' . $e->getMessage() . "\n");
+        fwrite(STDERR, 'redact-secrets: '.$e->getMessage()."\n");
 
         return 1;
     }

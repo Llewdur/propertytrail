@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Contracts\Adapters\StorageAdapterInterface;
+use App\Factories\AreaRoomWriteFactory;
 use App\Factories\InspectionWriteFactory;
 use App\Factories\LeaseWriteFactory;
 use App\Factories\PropertyWriteFactory;
@@ -117,6 +118,48 @@ it('has no comparison without a lease baseline', function (): void {
     $outgoing = comparisonInspection($this, 'outgoing', ['Walls' => 'good']);
 
     expect(app(ComparisonService::class)->compare($outgoing))->toBeNull();
+});
+
+it('ignores a move-in record submitted after the move-out inspection', function (): void {
+    $outgoing = comparisonInspection($this, 'outgoing', ['Walls' => 'good']);
+    comparisonInspection($this, 'incoming', [
+        'Walls' => 'good',
+    ])->forceFill(['submitted_at' => now()->addDay()])->save();
+
+    expect(app(ComparisonService::class)->compare($outgoing))->toBeNull();
+});
+
+it('does not let a title match take the section of another room', function (): void {
+    $incoming = comparisonInspection($this, 'incoming', ['Walls' => 'good']);
+    $outgoing = comparisonInspection($this, 'outgoing', []);
+    // Created after both inspections so neither is seeded from the room.
+    $kitchen = app(AreaRoomWriteFactory::class)->create([
+        'property_id' => $this->property->id,
+        'name' => 'Kitchen',
+        'room_type' => 'kitchen',
+    ]);
+    $incoming->sections()->where('title', 'Kitchen')->update(['area_room_id' => $kitchen->id]);
+
+    $renamed = InspectionSection::query()->create([
+        'organisation_id' => $outgoing->organisation_id,
+        'inspection_id' => $outgoing->id,
+        'area_room_id' => $kitchen->id,
+        'title' => 'Main kitchen',
+        'room_type' => 'kitchen',
+        'sort_order' => 99,
+    ]);
+    InspectionItem::query()->create([
+        'organisation_id' => $outgoing->organisation_id,
+        'inspection_section_id' => $renamed->id,
+        'label' => 'Walls',
+        'condition' => 'good',
+        'source' => InspectionItem::SOURCE_MANUAL,
+        'sort_order' => 0,
+    ]);
+
+    $rows = app(ComparisonService::class)->compare($outgoing->refresh())['rows'];
+
+    expect(collect($rows)->firstWhere('room', 'Main kitchen')['incoming'])->toBe('good');
 });
 
 it('renders the report with the comparison section for an outgoing inspection', function (): void {
