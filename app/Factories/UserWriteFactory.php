@@ -38,7 +38,7 @@ final class UserWriteFactory
     /** Joins the user to the organisation, or changes the role of an existing member. */
     public function setRole(User $user, Organisation $organisation, string $role): void
     {
-        $user->organisations()->syncWithoutDetaching([$organisation->getKey() => ['role' => $role]]);
+        $user->organisations()->syncWithoutDetaching([(int) $organisation->getKey() => ['role' => $role]]);
     }
 
     public function acceptTerms(User $user, TermsAcceptanceSource $source = TermsAcceptanceSource::Register): void

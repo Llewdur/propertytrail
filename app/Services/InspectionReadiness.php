@@ -46,6 +46,7 @@ final class InspectionReadiness
                 static fn(InspectionItem $item): bool => $item->requires_note && trim((string) $item->note) === '',
             );
 
+            /** @var InspectionItem $item */
             foreach ($missing as $item) {
                 $errors[] = "{$section->title}: {$item->label} needs a note.";
             }
