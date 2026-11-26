@@ -53,7 +53,7 @@ final class SpaController extends Controller
             'Pragma' => 'no-cache',
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',
-            'Referrer-Policy' => 'no-referrer',
+            'Referrer-Policy' => 'same-origin',
             'Content-Security-Policy' => "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'",
         ]);
     }

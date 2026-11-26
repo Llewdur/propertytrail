@@ -33,6 +33,15 @@ type Props = {
     refreshKey?: number;
 };
 
+/** An error body has no list, so a failed response must reach the error message, not the state. */
+async function jsonOrThrow<T>(response: Response): Promise<T> {
+    if (!response.ok) {
+        throw new Error(`Request failed with ${response.status}`);
+    }
+
+    return (await response.json()) as T;
+}
+
 function PhotoPreview({ apiBase, headers, photo }: { apiBase: string; headers: () => Record<string, string>; photo: Photo }) {
     const url = useBlobUrl(apiBase, headers, photo.record.id);
 
@@ -100,7 +109,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
 
     useEffect(() => {
         fetch(`${apiBase}/properties`, { headers: headers() })
-            .then((response) => response.json() as Promise<{ data: Property[] }>)
+            .then((response) => jsonOrThrow<{ data: Property[] }>(response))
             .then((payload) => {
                 setProperties(payload.data);
                 setPropertyId(payload.data[0]?.id ?? null);
@@ -117,12 +126,12 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
         }
 
         fetch(`${apiBase}/properties/${propertyId}/rooms`, { headers: headers() })
-            .then((response) => response.json() as Promise<{ data: Room[] }>)
+            .then((response) => jsonOrThrow<{ data: Room[] }>(response))
             .then((payload) => setRooms(payload.data))
             .catch(() => setError('Could not load rooms.'));
 
         fetch(`${apiBase}/properties/${propertyId}/leases`, { headers: headers() })
-            .then((response) => response.json() as Promise<{ data: Lease[] }>)
+            .then((response) => jsonOrThrow<{ data: Lease[] }>(response))
             .then((payload) => {
                 setLeases(payload.data);
                 setLeaseId(payload.data[0]?.id ?? null);
