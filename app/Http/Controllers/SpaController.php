@@ -33,7 +33,6 @@ final class SpaController extends Controller
         $bootstrap = [
             'appName' => config('app.name'),
             'version' => config('app.version'),
-            'termsUrl' => url('/terms'),
             'currentOrganisationId' => $this->currentOrganisation->id(),
             'googleEnabled' =>
                 is_string(config('services.google.client_id'))
@@ -41,6 +40,8 @@ final class SpaController extends Controller
                     && is_string(config('services.google.client_secret'))
                     && config('services.google.client_secret') !== '',
             ...AuthBootstrap::for($request),
+            // After the spread: the package sends its own, unset, termsUrl.
+            'termsUrl' => url('/terms'),
         ];
 
         $script =
