@@ -151,12 +151,6 @@ message = 'Returned type `Illuminate\Http\RedirectResponse|Symfony\Component\Htt
 count = 1
 
 [[issues]]
-file = "app/Http/Controllers/Api/GoogleAuthController.php"
-code = "non-documented-property"
-message = 'Ambiguous property access: $google_id on class `App\Models\User`.'
-count = 1
-
-[[issues]]
 file = "app/Http/Controllers/Api/InspectionDeliveryController.php"
 code = "invalid-argument"
 message = 'Invalid argument type for argument #1 of `Illuminate\Support\Collection::map`: expected `(callable(stdClass, int): array<string, mixed>)`, but found `(closure(App\Models\Delivery): array<string, mixed>)`.'
@@ -595,15 +589,15 @@ message = 'Ambiguous method call to `getmodels` on class `Illuminate\Database\Qu
 count = 1
 
 [[issues]]
-file = "app/Services/DeliveryService.php"
-code = "implicit-to-string-cast"
-message = 'Implicit conversion to `string` for right operand via `Ramsey\Uuid\UuidInterface::__toString()`.'
-count = 1
-
-[[issues]]
 file = "app/Services/ComparisonService.php"
 code = "invalid-return-statement"
 message = 'Invalid return type for function `App\Services\ComparisonService::baselineFor`: expected `App\Models\Inspection|null`, but found `null|stdClass`.'
+count = 1
+
+[[issues]]
+file = "app/Services/DeliveryService.php"
+code = "implicit-to-string-cast"
+message = 'Implicit conversion to `string` for right operand via `Ramsey\Uuid\UuidInterface::__toString()`.'
 count = 1
 
 [[issues]]

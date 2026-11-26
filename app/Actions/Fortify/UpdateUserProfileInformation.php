@@ -38,6 +38,10 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             $user->forceFill([
                 'name' => $input['name'],
                 'email' => $input['email'],
+                // A new address has not been verified, and Google linking trusts this field.
+                'email_verified_at' => $input['email'] === $user->email
+                    ? $user->getAttribute('email_verified_at')
+                    : null,
             ])->save();
         }
     }

@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Laravel\Socialite\AbstractUser;
 use Laravel\Socialite\Facades\Socialite;
 use Throwable;
 use Zekini\Auth\Enums\TermsAcceptanceSource;
@@ -28,6 +29,11 @@ final class GoogleAuthController extends Controller
         return Socialite::driver('google')->redirect();
     }
 
+    /**
+     * Only an address Google has verified may create an account or reach an existing one, and only a
+     * locally verified account is linked, because someone else may have registered an unverified one.
+     * Google does not stand in for two factor authentication: such an account goes to the code step.
+     */
     public function callback(Request $request): RedirectResponse
     {
         try {
@@ -36,30 +42,55 @@ final class GoogleAuthController extends Controller
             return redirect('/app?auth_error=google');
         }
 
+        /** @var User|null $user */
         $user = User::query()->where('google_id', $googleUser->getId())->first();
 
-        if ($user === null && is_string($googleUser->getEmail())) {
-            $user = User::query()->where('email', $googleUser->getEmail())->first();
+        if ($user === null) {
+            $email = $googleUser->getEmail();
+
+            if (
+                !is_string($email)
+                || !$googleUser instanceof AbstractUser
+                || ($googleUser->getRaw()['email_verified'] ?? null) !== true
+            ) {
+                return redirect('/app?auth_error=google');
+            }
+
+            /** @var User|null $user */
+            $user = User::query()
+                ->whereRaw('lower(email) = ?', [Str::lower($email)])
+                ->first();
+
+            if ($user === null) {
+                $organisation = $this->organisations->create([
+                    'name' => ($googleUser->getName() ?: 'My') . ' Organisation',
+                ]);
+
+                $user = $this->users->create([
+                    'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'PropertyTrail User',
+                    'email' => $email,
+                    'password' => Str::random(32),
+                ]);
+
+                $user->forceFill(['google_id' => $googleUser->getId(), 'email_verified_at' => now()])->save();
+                $this->users->attachToOrganisation($user, $organisation, 'admin');
+            } elseif ($user->getAttribute('email_verified_at') === null || $user->getAttribute('google_id') !== null) {
+                return redirect('/app?auth_error=google_link');
+            }
         }
 
-        if ($user === null) {
-            $organisation = $this->organisations->create([
-                'name' => ($googleUser->getName() ?: 'My') . ' Organisation',
-            ]);
+        if ($user->getAttribute('two_factor_confirmed_at') !== null) {
+            $request->session()->put(['login.id' => $user->getKey(), 'login.remember' => false]);
 
-            $user = $this->users->create([
-                'name' => $googleUser->getName() ?: $googleUser->getNickname() ?: 'PropertyTrail User',
-                'email' => $googleUser->getEmail() ?? Str::lower(Str::random(12)) . '@example.invalid',
-                'password' => Str::random(32),
-            ]);
+            return redirect('/app?auth_error=google_two_factor');
+        }
 
-            $user->forceFill(['google_id' => $googleUser->getId(), 'email_verified_at' => now()])->save();
-            $this->users->attachToOrganisation($user, $organisation, 'admin');
-        } elseif ($user->google_id === null) {
+        if ($user->getAttribute('google_id') === null) {
             $user->forceFill(['google_id' => $googleUser->getId()])->save();
         }
 
         Auth::login($user);
+        $request->session()->regenerate();
         $request->session()->put('two_factor_verified', true);
 
         if (!$this->users->hasAcceptedTerms($user)) {
