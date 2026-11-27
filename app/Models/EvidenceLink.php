@@ -43,6 +43,7 @@ final class EvidenceLink extends Model
         'area_room_id',
         'taken_at',
         'replaces_link_id',
+        'capture_link_id',
     ];
 
     /** @return array<string, string> */

@@ -45,7 +45,7 @@ export type SyncResult = {
     errors: string[];
 };
 
-type StoreName = 'photos' | 'submissions' | 'drafts';
+type StoreName = 'photos' | 'submissions' | 'drafts' | 'captures';
 
 type OfflineBackend = {
     put(store: StoreName, key: string, value: unknown): Promise<void>;
@@ -55,8 +55,8 @@ type OfflineBackend = {
 };
 
 const DATABASE_NAME = 'propertytrail-offline';
-const DATABASE_VERSION = 1;
-const STORE_NAMES: StoreName[] = ['photos', 'submissions', 'drafts'];
+const DATABASE_VERSION = 2;
+const STORE_NAMES: StoreName[] = ['photos', 'submissions', 'drafts', 'captures'];
 
 const memory = new Map<StoreName, Map<string, unknown>>();
 
@@ -139,6 +139,74 @@ const indexedDbBackend: OfflineBackend = {
 };
 
 const backend: OfflineBackend = typeof indexedDB === 'undefined' ? memoryBackend : indexedDbBackend;
+
+/** A tenant photo from a capture link. The link token is deliberately not stored with it. */
+export type PendingCapture = {
+    id: string;
+    captureKey: string;
+    areaId: number;
+    file: Blob;
+    fileName: string;
+    createdAt: string;
+};
+
+export async function queueCapture(input: Omit<PendingCapture, 'id' | 'createdAt'>): Promise<void> {
+    const capture: PendingCapture = { ...input, id: newId(), createdAt: new Date().toISOString() };
+
+    await backend.put('captures', capture.id, capture);
+}
+
+export async function queuedCaptures(captureKey: string): Promise<PendingCapture[]> {
+    const captures = await backend.all<PendingCapture>('captures');
+
+    return captures
+        .filter((capture) => capture.captureKey === captureKey)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+/**
+ * Uploads what is waiting. A photo the server will never accept is dropped with
+ * its reason; anything else (offline, busy, link expired) stays for a retry.
+ */
+export async function flushCaptures(apiBase: string, token: string, captureKey: string): Promise<{ uploaded: number; errors: string[] }> {
+    const result = { uploaded: 0, errors: [] as string[] };
+
+    for (const capture of await queuedCaptures(captureKey)) {
+        const form = new FormData();
+        form.append('file', capture.file, capture.fileName);
+        form.append('area_room_id', String(capture.areaId));
+
+        let response: Response;
+
+        try {
+            response = await fetch(`${apiBase}/capture/photos`, {
+                method: 'POST',
+                credentials: 'omit',
+                headers: { Accept: 'application/json', 'X-Capture-Token': token },
+                body: form,
+            });
+        } catch {
+            break;
+        }
+
+        if (response.ok) {
+            await backend.remove('captures', capture.id);
+            result.uploaded += 1;
+            continue;
+        }
+
+        result.errors.push(await responseFailure(response, 'A photo could not be uploaded.'));
+
+        if (response.status === 413 || response.status === 422) {
+            await backend.remove('captures', capture.id);
+            continue;
+        }
+
+        break;
+    }
+
+    return result;
+}
 
 function newId(): string {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;

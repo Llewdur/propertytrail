@@ -22,6 +22,7 @@ final class RequireResolvedOrganisationForWrites
             !in_array($request->getRealMethod(), ['GET', 'HEAD', 'OPTIONS'], true)
             && !$request->is('api/v1/auth/*')
             && !$request->is('api/v1/sign/*')
+            && !$request->is('api/v1/capture/*')
             && !$request->is('api/v1/billing/webhook')
             && !$request->is('api/v1/pilot-enquiries')
             && !$request->is('api/v1/invitations/*/accept')

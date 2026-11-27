@@ -32,6 +32,9 @@ return Application::configure(basePath: dirname(__DIR__))
             RequireResolvedOrganisationForWrites::class,
         ]);
 
+        // The capture routes authenticate with a token header and use no cookie, so there is nothing to forge.
+        $middleware->preventRequestForgery(except: ['api/v1/capture/*']);
+
         $middleware->alias([
             'property.access' => EnsurePropertyAccess::class,
         ]);

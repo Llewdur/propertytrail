@@ -14,12 +14,14 @@ use App\Http\Controllers\Api\InspectionSignatureController;
 use App\Http\Controllers\Api\InspectionTemplateController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\LeaseAreaController;
+use App\Http\Controllers\Api\LeaseCaptureLinkController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
 use App\Http\Controllers\Api\OrganisationController;
 use App\Http\Controllers\Api\PilotEnquiryController;
 use App\Http\Controllers\Api\PropertyAssignmentController;
 use App\Http\Controllers\Api\PropertyController;
+use App\Http\Controllers\Api\PublicCaptureController;
 use App\Http\Controllers\Api\PublicSigningController;
 use App\Http\Controllers\Api\SiteController;
 use App\Http\Controllers\Api\SystemController;
@@ -32,6 +34,13 @@ Route::middleware('throttle:30,1')->group(function (): void {
     Route::get('sign/{token}', [PublicSigningController::class, 'show']);
     Route::post('sign/{token}', [PublicSigningController::class, 'sign']);
     Route::post('billing/webhook', [BillingController::class, 'webhook']);
+});
+
+// A tenant uploads many photos in one sitting; the token is in a header, not the path.
+Route::middleware('throttle:120,1,capture')->group(function (): void {
+    Route::get('capture', [PublicCaptureController::class, 'show']);
+    Route::post('capture/photos', [PublicCaptureController::class, 'store']);
+    Route::get('capture/photos/{photo}', [PublicCaptureController::class, 'photo'])->whereNumber('photo');
 });
 
 Route::middleware('throttle:6,1')->group(function (): void {
@@ -135,6 +144,17 @@ Route::middleware('auth:sanctum')->group(function (): void {
             InspectionReportController::class,
             'revokeLinks',
         ])->whereNumber('inspection');
+    });
+
+    Route::middleware('property.access:contribute')->group(function (): void {
+        Route::get('leases/{lease}/capture-link', [LeaseCaptureLinkController::class, 'show'])->whereNumber('lease');
+        Route::post('leases/{lease}/capture-link', [LeaseCaptureLinkController::class, 'store'])->whereNumber('lease');
+        Route::delete('leases/{lease}/capture-link', [LeaseCaptureLinkController::class, 'destroy'])->whereNumber(
+            'lease',
+        );
+        Route::post('leases/{lease}/capture-link/send', [LeaseCaptureLinkController::class, 'send'])
+            ->whereNumber('lease')
+            ->middleware('throttle:6,1');
     });
 
     Route::middleware('property.access:update')->group(function (): void {
