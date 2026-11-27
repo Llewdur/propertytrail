@@ -44,6 +44,8 @@ final class EvidenceLink extends Model
         'taken_at',
         'replaces_link_id',
         'capture_link_id',
+        'capture_corner',
+        'capture_shot',
     ];
 
     /** @return array<string, string> */

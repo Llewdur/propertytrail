@@ -144,16 +144,41 @@ const backend: OfflineBackend = typeof indexedDB === 'undefined' ? memoryBackend
 export type PendingCapture = {
     id: string;
     captureKey: string;
-    areaId: number;
+    /** Null for a room the tenant named that the server does not know yet. */
+    areaId: number | null;
+    roomKey?: string | null;
+    roomName?: string;
+    roomOutdoor?: boolean;
+    adjoinsId?: number | null;
+    adjoinsKey?: string | null;
+    corner?: number | null;
+    shot?: string;
+    /** True while the tenant may still retake it; a held photo is not uploaded. */
+    held?: boolean;
     file: Blob;
     fileName: string;
     createdAt: string;
 };
 
-export async function queueCapture(input: Omit<PendingCapture, 'id' | 'createdAt'>): Promise<void> {
+export async function queueCapture(input: Omit<PendingCapture, 'id' | 'createdAt'>): Promise<string> {
     const capture: PendingCapture = { ...input, id: newId(), createdAt: new Date().toISOString() };
 
     await backend.put('captures', capture.id, capture);
+
+    return capture.id;
+}
+
+/** Lets held photos upload: one of them, or all left over from a closed tab. */
+export async function releaseCaptures(captureKey: string, id?: string): Promise<void> {
+    for (const capture of await queuedCaptures(captureKey)) {
+        if (capture.held === true && (id === undefined || capture.id === id)) {
+            await backend.put('captures', capture.id, { ...capture, held: false });
+        }
+    }
+}
+
+export async function dropCapture(id: string): Promise<void> {
+    await backend.remove('captures', id);
 }
 
 export async function queuedCaptures(captureKey: string): Promise<PendingCapture[]> {
@@ -166,15 +191,18 @@ export async function queuedCaptures(captureKey: string): Promise<PendingCapture
 
 /**
  * Uploads what is waiting. A photo the server will never accept is dropped with
- * its reason; anything else (offline, busy, link expired) stays for a retry.
+ * its reason; one that is too large for the server stays, so it is not lost;
+ * anything else (offline, busy, link expired) stays for a retry.
  */
 export async function flushCaptures(apiBase: string, token: string, captureKey: string): Promise<{ uploaded: number; errors: string[] }> {
     const result = { uploaded: 0, errors: [] as string[] };
 
     for (const capture of await queuedCaptures(captureKey)) {
-        const form = new FormData();
-        form.append('file', capture.file, capture.fileName);
-        form.append('area_room_id', String(capture.areaId));
+        if (capture.held === true) {
+            continue;
+        }
+
+        const form = captureForm(capture);
 
         let response: Response;
 
@@ -195,9 +223,14 @@ export async function flushCaptures(apiBase: string, token: string, captureKey: 
             continue;
         }
 
+        if (response.status === 413) {
+            result.errors.push('A photo is too large to upload. It is still saved on this phone.');
+            continue;
+        }
+
         result.errors.push(await responseFailure(response, 'A photo could not be uploaded.'));
 
-        if (response.status === 413 || response.status === 422) {
+        if (response.status === 422) {
             await backend.remove('captures', capture.id);
             continue;
         }
@@ -206,6 +239,36 @@ export async function flushCaptures(apiBase: string, token: string, captureKey: 
     }
 
     return result;
+}
+
+function captureForm(capture: PendingCapture): FormData {
+    const form = new FormData();
+    form.append('file', capture.file, capture.fileName);
+    form.append('taken_at', capture.createdAt);
+
+    const room: Record<string, string | number | null | undefined> =
+        capture.areaId !== null
+            ? { area_room_id: capture.areaId }
+            : {
+                  room_key: capture.roomKey,
+                  room_name: capture.roomName,
+                  room_outdoor: capture.roomOutdoor === true ? 1 : 0,
+              };
+    const fields = {
+        ...room,
+        adjoins_area_room_id: capture.adjoinsId,
+        adjoins_room_key: capture.adjoinsKey,
+        corner: capture.corner,
+        shot: capture.shot,
+    };
+
+    for (const [name, value] of Object.entries(fields)) {
+        if (value !== null && value !== undefined) {
+            form.append(name, String(value));
+        }
+    }
+
+    return form;
 }
 
 function newId(): string {

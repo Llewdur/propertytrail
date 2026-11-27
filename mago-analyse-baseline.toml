@@ -705,12 +705,6 @@ count = 1
 [[issues]]
 file = "app/Services/CaptureLinkService.php"
 code = "mixed-return-statement"
-message = 'Could not infer a precise return type for function `App\Services\CaptureLinkService::addPhoto`. Saw type `mixed`.'
-count = 1
-
-[[issues]]
-file = "app/Services/CaptureLinkService.php"
-code = "mixed-return-statement"
 message = 'Could not infer a precise return type for function `App\Services\CaptureLinkService::issue`. Saw type `mixed`.'
 count = 1
 

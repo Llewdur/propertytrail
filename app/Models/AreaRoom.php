@@ -18,6 +18,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $name
  * @property string $room_type
  * @property int $sort_order
+ * @property string|null $capture_key
+ * @property int|null $adjoins_area_room_id
  */
 final class AreaRoom extends Model
 {
@@ -37,6 +39,8 @@ final class AreaRoom extends Model
         'room_type',
         'sort_order',
         'notes',
+        'capture_key',
+        'adjoins_area_room_id',
     ];
 
     /** @return BelongsTo<Property, $this> */

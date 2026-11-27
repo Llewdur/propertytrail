@@ -1,6 +1,8 @@
 import { Button, Card } from '@zekini/ui';
 import { useCallback, useEffect, useState } from 'react';
+import { compressImage } from './compressImage';
 import { useBlobUrl } from './ItemPhotos';
+import RoomTools from './RoomTools';
 
 type Property = { id: number; name: string };
 type Room = { id: number; name: string };
@@ -52,7 +54,7 @@ function PhotoPreview({ apiBase, headers, photo }: { apiBase: string; headers: (
             ) : (
                 <div className="h-20 w-28 rounded bg-slate-100" />
             )}
-            <figcaption className="mt-1 truncate">{photo.record.file_name}</figcaption>
+            <figcaption className="mt-1 truncate">{photo.label ?? photo.record.file_name}</figcaption>
             {url !== null && (
                 <a className="underline" href={url} download={photo.record.file_name}>Download</a>
             )}
@@ -82,6 +84,8 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
 
         return result;
     }, [organisationId]);
+
+    const [roomsVersion, setRoomsVersion] = useState(0);
 
     const loadPhotos = useCallback(async (): Promise<void> => {
         if (propertyId === null) {
@@ -166,11 +170,28 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
         return () => {
             isCurrent = false;
         };
-    }, [apiBase, headers, leaseId, refreshKey]);
+    }, [apiBase, headers, leaseId, refreshKey, roomsVersion]);
 
     useEffect(() => {
         void loadPhotos();
     }, [loadPhotos]);
+
+    // A rename, merge or split changes both the room list and the grouping.
+    const roomsChanged = (): void => {
+        setRoomsVersion((version) => version + 1);
+        void loadPhotos();
+    };
+
+    useEffect(() => {
+        if (propertyId === null || roomsVersion === 0) {
+            return;
+        }
+
+        fetch(`${apiBase}/properties/${propertyId}/rooms`, { headers: headers() })
+            .then((response) => jsonOrThrow<{ data: Room[] }>(response))
+            .then((payload) => setRooms(payload.data))
+            .catch(() => setError('Could not load rooms.'));
+    }, [apiBase, headers, propertyId, roomsVersion]);
 
     const upload = async (): Promise<void> => {
         if (file === null || leaseId === null) {
@@ -179,7 +200,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
         }
 
         const body = new FormData();
-        body.append('file', file);
+        body.append('file', await compressImage(file));
         body.append('attachable_type', 'lease');
         body.append('attachable_id', String(leaseId));
         body.append('phase', phase);
@@ -195,7 +216,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
         });
 
         if (!response.ok) {
-            setError('Upload failed.');
+            setError(response.status === 413 ? 'That photo is too large to upload.' : 'Upload failed. Try again.');
             return;
         }
 
@@ -284,8 +305,20 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
                 {groups.map((group, index) => (
                     <div key={`${group.room?.id ?? 'property'}-${index}`} className="rounded border border-slate-200 p-3">
                         <h3 className="font-medium">{group.room?.name ?? 'Property level'}</h3>
+                        {group.room !== null && rooms.some((room) => room.id === group.room?.id) && (
+                            <RoomTools
+                                apiBase={apiBase}
+                                headers={headers}
+                                room={group.room}
+                                rooms={rooms}
+                                photos={group.photos}
+                                onChanged={roomsChanged}
+                            />
+                        )}
                         <div className="mt-2 grid grid-cols-2 gap-3">
-                            {(['incoming', 'outgoing'] as const).map((lens) => (
+                            {(['incoming', 'interim', 'outgoing'] as const)
+                                .filter((lens) => lens !== 'interim' || group.photos.some((photo) => photo.phase === lens))
+                                .map((lens) => (
                                 <div key={lens}>
                                     <p className="text-xs uppercase text-slate-500">{lens}</p>
                                     {group.photos

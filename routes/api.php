@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\PropertyAssignmentController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\PublicCaptureController;
 use App\Http\Controllers\Api\PublicSigningController;
+use App\Http\Controllers\Api\RoomReorganiseController;
 use App\Http\Controllers\Api\SiteController;
 use App\Http\Controllers\Api\SystemController;
 use Illuminate\Support\Facades\Route;
@@ -163,6 +164,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::put('rooms/{room}', [AreaRoomController::class, 'update']);
         Route::put('leases/{lease}/areas', [LeaseAreaController::class, 'update'])->whereNumber('lease');
         Route::delete('rooms/{room}', [AreaRoomController::class, 'destroy']);
+        Route::post('rooms/{room}/merge', [RoomReorganiseController::class, 'merge'])->whereNumber('room');
+        Route::post('rooms/{room}/split', [RoomReorganiseController::class, 'split'])->whereNumber('room');
     });
 
     Route::get('inspection-templates', [InspectionTemplateController::class, 'index']);

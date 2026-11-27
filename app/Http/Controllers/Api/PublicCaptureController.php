@@ -74,27 +74,34 @@ final class PublicCaptureController extends Controller
             return $link;
         }
 
-        $areaId = (int) $request->validated('area_room_id');
         $lease = Lease::query()->findOrFail($link->lease_id);
         $file = $request->file('file');
 
-        if (!$file instanceof UploadedFile || !$this->areas->coveredByLease($lease)->contains('id', $areaId)) {
-            return response()->json([
-                'message' => 'This link does not cover that room or area.',
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        if (!$file instanceof UploadedFile) {
+            return $this->refuse('Choose a photo to upload.');
         }
 
         if ($this->links->photos($link)->count() >= CaptureLinkService::MAX_PHOTOS) {
-            return response()->json([
-                'message' => 'The photo limit for this capture has been reached.',
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            return $this->refuse('The photo limit for this capture has been reached.');
         }
 
-        return $this->private(['data' => $this->photoPayload($this->links->addPhoto(
-            $link,
-            $file,
-            $areaId,
-        ))], Response::HTTP_CREATED);
+        /** @var array<string, mixed> $data */
+        $data = $request->validated();
+        $photo = $this->links->capture($link, $lease, $file, $data);
+
+        if ($photo === null) {
+            return $this->refuse('This link does not cover that room or area.');
+        }
+
+        return $this->private(['data' => [
+            ...$this->photoPayload($photo),
+            'area_room_id' => $photo->area_room_id,
+        ]], Response::HTTP_CREATED);
+    }
+
+    private function refuse(string $message): JsonResponse
+    {
+        return response()->json(['message' => $message], Response::HTTP_UNPROCESSABLE_ENTITY);
     }
 
     public function photo(Request $request, int $photo): Response

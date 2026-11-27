@@ -1,5 +1,6 @@
 import { Button } from '@zekini/ui';
 import { useEffect, useRef, useState } from 'react';
+import { compressImage } from './compressImage';
 import { queuePhoto, queuedPhotos, type PendingPhoto } from './offline';
 
 export type ItemPhoto = {
@@ -183,7 +184,7 @@ export default function ItemPhotos({ apiBase, headers, inspectionId, itemId, pho
         setNotice(null);
 
         try {
-            await upload(pending);
+            await upload(await compressImage(pending));
         } catch {
             setError('Could not save the photo. Check your connection and try again.');
         } finally {
