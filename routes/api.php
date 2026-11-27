@@ -35,7 +35,6 @@ Route::get('version', [SystemController::class, 'version']);
 Route::middleware('throttle:30,1')->group(function (): void {
     Route::get('sign/{token}', [PublicSigningController::class, 'show']);
     Route::post('sign/{token}', [PublicSigningController::class, 'sign']);
-    Route::post('billing/webhook', [BillingController::class, 'webhook']);
 });
 
 // A tenant uploads many photos in one sitting; the token is in a header, not the path.

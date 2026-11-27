@@ -44,6 +44,7 @@
     footer p { color: #475569; font-size: .9rem; }
     @media print { .masthead nav, .cta, footer { display: none; } body { background: #fff; } .card { border: 0; padding: 0 0 .75rem 0; } }
 </style>
+{!! \App\Support\PulseBrowser::tags() !!}
 </head>
 <body>
 <header class="masthead">

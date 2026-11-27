@@ -6,7 +6,7 @@ return [
     'guard' => env('AUTH_GUARD', 'web'),
     'api_guard' => 'sanctum',
     'prefix' => env('AUTH_ROUTE_PREFIX', 'api/v1/auth'),
-    'middleware' => ['web'],
+    'middleware' => ['audit-api-call', 'web'],
     'protected_middleware' => ['auth:sanctum'],
     'terms_version' => null,
     'terms' => [

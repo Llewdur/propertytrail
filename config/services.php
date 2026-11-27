@@ -63,6 +63,12 @@ return [
         'sender_name' => env('MAIL_FROM_NAME', 'PropertyTrail'),
     ],
 
+    // The browser SDK. No write key means no tag at all, so only the production host has one.
+    'pulse' => [
+        'api_base' => env('PULSE_API_BASE') ?: 'https://pulse.zekini.co.za',
+        'write_key' => env('PULSE_WRITE_KEY'),
+    ],
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
