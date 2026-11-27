@@ -139,6 +139,7 @@ final class CapturePasskeyService
         $options = $this->challenge('verify', $link);
         $stored = $this->ceremony->assert($credential, $options, $passkey->credential_id, $passkey->credential);
         $passkey->forceFill(['credential' => $stored, 'last_used_at' => now()])->save();
+        $passkey->audit('capture_unlocked', null);
 
         return $this->unlock($link);
     }
