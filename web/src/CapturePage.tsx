@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import CameraScreen from './CameraScreen';
-import { loadFlow, NEW_FLOW, newRoomKey, resumeStep, saveFlow, type Flow, type RoomRef, type Shot } from './captureFlow';
+import { loadFlow, NEW_FLOW, newRoomKey, resumeStep, saveFlow, type Flow, type IssueKind, type RoomRef, type Shot } from './captureFlow';
 import { compressImage } from './compressImage';
-import { dropCapture, flushCaptures, queueCapture, queuedCaptures, releaseCaptures } from './offline';
+import { dropCapture, flushCaptures, queueCapture, queuedCaptures, releaseCaptures, type CaptureNote } from './offline';
 
-type Area = { id: number; name: string; photos: { id: number }[] };
+type Area = { id: number; room_key?: string | null; name: string; photos: { id: number }[] };
 type Capture = {
     capture_key: string;
     property_name: string;
@@ -26,6 +26,17 @@ const COMMON_ROOMS = [
     { name: 'Garage', outdoor: false },
 ];
 const SUGGESTIONS = 6;
+/** Matches ConditionVocabulary on the server. */
+const CONDITIONS = ['Excellent', 'Good', 'Fair', 'Poor', 'Damaged'];
+const ISSUE_KINDS: { kind: IssueKind; label: string }[] = [
+    { kind: 'broken', label: 'Broken' },
+    { kind: 'damaged', label: 'Damaged' },
+    { kind: 'missing', label: 'Missing' },
+];
+const ROOM_STEPS = [
+    'walked', 'corner', 'nearest', 'camera', 'taken', 'more', 'room-check',
+    'rate', 'any-issue', 'issue-kind', 'issue-note', 'issue-photo', 'issue-more',
+];
 
 const PRIMARY = 'block w-full rounded-lg bg-slate-900 px-4 py-4 text-lg font-semibold text-white disabled:opacity-40';
 const SECONDARY = 'block w-full rounded-lg border border-slate-300 bg-white px-4 py-3';
@@ -80,6 +91,7 @@ export default function CapturePage({ apiBase, token }: Props) {
     const [outdoor, setOutdoor] = useState(false);
     const [taken, setTaken] = useState<{ id: string; url: string } | null>(null);
     const [saving, setSaving] = useState(false);
+    const [note, setNote] = useState('');
     const syncing = useRef(false);
 
     const load = useCallback(async (): Promise<void> => {
@@ -197,6 +209,35 @@ export default function CapturePage({ apiBase, token }: Props) {
         }
     }
 
+    const roomFields = (target: RoomRef) => ({
+        areaId: target.id,
+        roomKey: target.key,
+        roomName: target.name,
+        roomOutdoor: target.outdoor,
+        adjoinsId: target.adjoinsId,
+        adjoinsKey: target.adjoinsKey,
+    });
+
+    /** Saved on the phone first, like a photo, so it survives being offline. */
+    async function answer(entry: CaptureNote, patch: Partial<Flow>): Promise<void> {
+        if (captureKey === null || flow.room === null || saving) {
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            await queueCapture({ captureKey, ...roomFields(flow.room), note: entry });
+            setError(null);
+            go(patch);
+            void sync();
+        } catch {
+            setError('This phone could not save your answer. Free some space and try again.');
+        } finally {
+            setSaving(false);
+        }
+    }
+
     async function retake(): Promise<void> {
         if (taken !== null) {
             await dropCapture(taken.id);
@@ -220,13 +261,9 @@ export default function CapturePage({ apiBase, token }: Props) {
             // Saved on the phone first, so a dropped connection or a closed tab loses nothing.
             const id = await queueCapture({
                 captureKey,
-                areaId: room.id,
-                roomKey: room.key,
-                roomName: room.name,
-                roomOutdoor: room.outdoor,
-                adjoinsId: room.adjoinsId,
-                adjoinsKey: room.adjoinsKey,
-                corner: flow.shot === 'extra' ? null : flow.corner,
+                ...roomFields(room),
+                corner: flow.shot === 'extra' || flow.shot === 'closeup' ? null : flow.corner,
+                issueKey: flow.shot === 'closeup' ? flow.issue?.key : null,
                 shot: flow.shot,
                 held: true,
                 file,
@@ -234,10 +271,10 @@ export default function CapturePage({ apiBase, token }: Props) {
             });
             setTaken({ id, url: URL.createObjectURL(file) });
             setError(null);
-            go({ step: 'taken' });
+            go({ step: flow.shot === 'closeup' ? 'issue-more' : 'taken' });
         } catch {
             setError('This phone could not save the photo. Free some space and try again.');
-            go({ step: 'corner' });
+            go({ step: flow.shot === 'closeup' ? 'issue-photo' : 'corner' });
         } finally {
             setSaving(false);
         }
@@ -277,12 +314,23 @@ export default function CapturePage({ apiBase, token }: Props) {
 
     function finishRoom(): void {
         const room = flow.room;
-        go({
+        void keep({
             step: 'next-room',
             previous: room,
             room: null,
+            issue: null,
             finished: room === null ? flow.finished : [...flow.finished, roomMark(room)],
+            rooms: room === null ? flow.rooms : [...flow.rooms, room],
         });
+    }
+
+    /** After the last problem in a room: on to the next room, or back to "anything else?". */
+    function noMoreIssues(): void {
+        if (flow.later) {
+            void keep({ step: 'anything-else', room: null, issue: null, later: false });
+        } else {
+            finishRoom();
+        }
     }
 
     const status = (
@@ -294,7 +342,7 @@ export default function CapturePage({ apiBase, token }: Props) {
             )}
             {waiting > 0 && (
                 <p role="status" className="text-center text-sm text-amber-700">
-                    {waiting} photo{waiting === 1 ? '' : 's'} saved on this phone, waiting to upload.
+                    {waiting} item{waiting === 1 ? '' : 's'} saved on this phone, waiting to upload.
                 </p>
             )}
         </>
@@ -311,11 +359,17 @@ export default function CapturePage({ apiBase, token }: Props) {
     const photographed = capture.areas.filter((area) => area.photos.length > 0);
     const roomNumber = Math.max(flow.finished.length, resumeAt?.finished.length ?? 0) + 1;
     const room = flow.room;
-    const progress = room === null ? `Room ${roomNumber}` : `Room ${roomNumber} · ${room.name} · Corner ${flow.corner}`;
+    const inCorners = ['walked', 'corner', 'nearest', 'taken', 'more', 'room-check'].includes(flow.step);
+    const progress = room === null
+        ? `Room ${roomNumber}`
+        : [flow.later ? null : `Room ${roomNumber}`, room.name, inCorners ? `Corner ${flow.corner}` : null]
+              .filter((part) => part !== null)
+              .join(' · ');
     const stop = (): void => {
         setResumeAt(flow);
         setFlow(NEW_FLOW);
         setTaken(null);
+        setNote('');
 
         if (captureKey !== null) {
             void releaseCaptures(captureKey).then(sync);
@@ -327,7 +381,7 @@ export default function CapturePage({ apiBase, token }: Props) {
         const returning = resumeAt !== null || photographed.length > 0;
         const start = (): void => {
             if (resumeAt !== null) {
-                setFlow({ ...resumeAt, step: resumeStep(resumeAt.step) });
+                setFlow({ ...resumeAt, step: resumeStep(resumeAt.step, resumeAt.shot) });
             } else {
                 // A new phone has no saved step, so the rooms already photographed count as done.
                 go({ step: 'name', finished: photographed.map((area) => `id:${area.id}`) });
@@ -346,7 +400,7 @@ export default function CapturePage({ apiBase, token }: Props) {
         );
     }
 
-    if (flow.step === 'name' || room === null && ['walked', 'corner', 'nearest', 'camera', 'taken', 'more', 'room-check'].includes(flow.step)) {
+    if (flow.step === 'name' || room === null && ROOM_STEPS.includes(flow.step)) {
         const unfinished = capture.areas.filter(
             (area) => area.photos.length === 0 && !flow.finished.includes(`id:${area.id}`),
         );
@@ -418,7 +472,7 @@ export default function CapturePage({ apiBase, token }: Props) {
                 {...shared}
                 actions={
                     <>
-                        <button type="button" className={PRIMARY} onClick={() => go({ step: 'done' })}>No, that is everything</button>
+                        <button type="button" className={PRIMARY} onClick={() => go({ step: 'anything-else' })}>No, that is everything</button>
                         <button type="button" className={SECONDARY} onClick={() => go({ step: 'name' })}>Yes, there is another</button>
                     </>
                 }
@@ -428,11 +482,61 @@ export default function CapturePage({ apiBase, token }: Props) {
         );
     }
 
+    if (flow.step === 'anything-else') {
+        return (
+            <Screen
+                {...shared}
+                actions={
+                    <>
+                        <button type="button" className={PRIMARY} onClick={() => go({ step: 'done' })}>No, finish</button>
+                        <button type="button" className={SECONDARY} onClick={() => go({ step: 'issue-room' })}>Yes, report it</button>
+                    </>
+                }
+            >
+                <Request>Anything else broken, damaged or missing?</Request>
+            </Screen>
+        );
+    }
+
+    if (flow.step === 'issue-room') {
+        // This phone's rooms, then any photographed on another phone.
+        const elsewhere = photographed.filter(
+            (area) => !flow.rooms.some((known) => known.id === area.id || (known.key !== null && known.key === area.room_key)),
+        );
+        const choices: RoomRef[] = [
+            ...flow.rooms,
+            ...elsewhere.map((area) => ({ id: area.id, key: null, name: area.name, outdoor: false, adjoinsId: null, adjoinsKey: null })),
+        ];
+
+        return (
+            <Screen {...shared} actions={<button type="button" className={LINK} onClick={() => go({ step: 'anything-else' })}>Back</button>}>
+                <Request>Which room?</Request>
+                <div className="flex flex-wrap justify-center gap-2">
+                    {choices.map((choice) => (
+                        <button
+                            key={roomMark(choice)}
+                            type="button"
+                            className="rounded-full border border-slate-300 bg-white px-4 py-2"
+                            onClick={() => go({ step: 'issue-kind', room: choice, later: true })}
+                        >
+                            {choice.name}
+                        </button>
+                    ))}
+                </div>
+            </Screen>
+        );
+    }
+
     if (flow.step === 'done' || room === null) {
         return (
             <Screen
                 notice={status}
-                actions={<button type="button" className={SECONDARY} onClick={() => go({ step: 'name' })}>Add another room</button>}
+                actions={
+                    <>
+                        <button type="button" className={SECONDARY} onClick={() => go({ step: 'name' })}>Add another room</button>
+                        <button type="button" className={SECONDARY} onClick={() => go({ step: 'issue-room' })}>Report a problem</button>
+                    </>
+                }
             >
                 <Request>Thank you. All done.</Request>
                 <p>{waiting > 0 ? 'Keep this page open until your photos have uploaded.' : 'Your photos have uploaded.'}</p>
@@ -459,9 +563,13 @@ export default function CapturePage({ apiBase, token }: Props) {
     if (flow.step === 'camera') {
         return (
             <CameraScreen
-                instruction={flow.shot === 'extra' ? 'Photograph the ceiling, the floor or a close-up.' : `Corner ${flow.corner}: aim at the opposite corner.`}
+                instruction={
+                    flow.shot === 'closeup'
+                        ? flow.issue?.kind === 'missing' ? 'Photograph where it should be.' : 'Take a close-up of the problem.'
+                        : flow.shot === 'extra' ? 'Photograph the ceiling, the floor or a close-up.' : `Corner ${flow.corner}: aim at the opposite corner.`
+                }
                 onPhoto={(file) => void save(file)}
-                onCancel={() => go({ step: 'corner', shot: 'corner' })}
+                onCancel={() => go(flow.shot === 'closeup' ? { step: 'issue-photo' } : { step: 'corner', shot: 'corner' })}
             />
         );
     }
@@ -528,12 +636,152 @@ export default function CapturePage({ apiBase, token }: Props) {
                 {...shared}
                 actions={
                     <>
-                        <button type="button" className={PRIMARY} onClick={finishRoom}>Yes, this room is done</button>
+                        <button type="button" className={PRIMARY} onClick={() => go({ step: 'rate' })}>Yes, this room is done</button>
                         <button type="button" className={SECONDARY} onClick={() => shoot('extra')}>No, add a photo</button>
                     </>
                 }
             >
                 <Request>Is everything in {room.name} photographed?</Request>
+            </Screen>
+        );
+    }
+
+    if (flow.step === 'rate') {
+        return (
+            <Screen
+                {...shared}
+                actions={CONDITIONS.map((condition) => (
+                    <button
+                        key={condition}
+                        type="button"
+                        className={SECONDARY}
+                        onClick={() => void answer({ condition: condition.toLowerCase() }, { step: 'any-issue' })}
+                    >
+                        {condition}
+                    </button>
+                ))}
+            >
+                <Request>What condition is {room.name} in?</Request>
+            </Screen>
+        );
+    }
+
+    if (flow.step === 'any-issue') {
+        return (
+            <Screen
+                {...shared}
+                actions={
+                    <>
+                        <button type="button" className={PRIMARY} onClick={noMoreIssues}>No</button>
+                        <button type="button" className={SECONDARY} onClick={() => go({ step: 'issue-kind' })}>Yes</button>
+                    </>
+                }
+            >
+                <Request>Is anything broken, damaged or missing?</Request>
+            </Screen>
+        );
+    }
+
+    if (flow.step === 'issue-kind') {
+        return (
+            <Screen
+                {...shared}
+                actions={
+                    <>
+                        {ISSUE_KINDS.map(({ kind, label }) => (
+                            <button
+                                key={kind}
+                                type="button"
+                                className={SECONDARY}
+                                onClick={() => {
+                                    setNote('');
+                                    go({ step: 'issue-note', issue: { key: newRoomKey(), kind } });
+                                }}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                        <button
+                            type="button"
+                            className={LINK}
+                            onClick={() => go(flow.later ? { step: 'issue-room', room: null, later: false } : { step: 'any-issue' })}
+                        >
+                            Back
+                        </button>
+                    </>
+                }
+            >
+                <Request>What is wrong?</Request>
+            </Screen>
+        );
+    }
+
+    const issue = flow.issue;
+
+    if (flow.step === 'issue-note' && issue !== null) {
+        return (
+            <Screen
+                {...shared}
+                actions={
+                    <>
+                        <button
+                            type="button"
+                            className={PRIMARY}
+                            disabled={note.trim() === '' || saving}
+                            onClick={() => void answer({ issueKey: issue.key, issueKind: issue.kind, issueNote: note.trim() }, { step: 'issue-photo' })}
+                        >
+                            Next
+                        </button>
+                        <button type="button" className={LINK} onClick={() => go({ step: 'issue-kind' })}>Back</button>
+                    </>
+                }
+            >
+                <Request>What is {issue.kind}?</Request>
+                <textarea
+                    className="w-full rounded-lg border border-slate-300 p-3 text-lg"
+                    aria-label="Describe the problem"
+                    maxLength={500}
+                    rows={3}
+                    placeholder="A few words"
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                />
+            </Screen>
+        );
+    }
+
+    if (flow.step === 'issue-photo') {
+        const missing = issue?.kind === 'missing';
+
+        return (
+            <Screen
+                {...shared}
+                actions={
+                    <>
+                        <button type="button" className={PRIMARY} onClick={() => shoot('closeup')}>Take photo</button>
+                        {missing && <button type="button" className={SECONDARY} onClick={() => go({ step: 'issue-more' })}>Skip</button>}
+                    </>
+                }
+            >
+                <Request>{missing ? 'Take a photo of where it should be.' : 'Take a close-up.'}</Request>
+            </Screen>
+        );
+    }
+
+    if (flow.step === 'issue-more') {
+        return (
+            <Screen
+                {...shared}
+                actions={
+                    <>
+                        <button type="button" className={PRIMARY} onClick={noMoreIssues}>No, that is all</button>
+                        <button type="button" className={SECONDARY} onClick={() => void keep({ step: 'issue-kind', issue: null })}>Yes, another</button>
+                        {taken !== null && <button type="button" className={LINK} onClick={() => void retake()}>Retake the photo</button>}
+                    </>
+                }
+            >
+                <Request>Another one in {room.name}?</Request>
+                {taken !== null && <img src={taken.url} alt="The photo you took" className="max-h-[30dvh] rounded" />}
             </Screen>
         );
     }

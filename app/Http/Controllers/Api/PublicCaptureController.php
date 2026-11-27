@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Contracts\Adapters\StorageAdapterInterface;
+use App\Http\Controllers\Api\Concerns\AnswersCaptureRequests;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CapturePhotoRequest;
 use App\Models\CaptureLink;
@@ -24,7 +25,7 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class PublicCaptureController extends Controller
 {
-    private const TOKEN_HEADER = 'X-Capture-Token';
+    use AnswersCaptureRequests;
 
     public function __construct(
         private readonly CaptureLinkService $links,
@@ -34,7 +35,7 @@ final class PublicCaptureController extends Controller
 
     public function show(Request $request): JsonResponse
     {
-        $link = $this->link($request);
+        $link = $this->link($request, $this->links);
 
         if (!$link instanceof CaptureLink) {
             return $link;
@@ -48,6 +49,8 @@ final class PublicCaptureController extends Controller
         foreach ($this->areas->coveredByLease($lease) as $area) {
             $areas[] = [
                 'id' => $area->getKey(),
+                // Lets the phone recognise a room it created itself once the server knows it.
+                ...($area->capture_key === null ? [] : ['room_key' => $area->capture_key]),
                 'name' => $area->name,
                 'photos' => $photos->get($area->getKey())?->map($this->photoPayload(...))->values()->all() ?? [],
             ];
@@ -68,7 +71,7 @@ final class PublicCaptureController extends Controller
 
     public function store(CapturePhotoRequest $request): JsonResponse
     {
-        $link = $this->link($request);
+        $link = $this->link($request, $this->links);
 
         if (!$link instanceof CaptureLink) {
             return $link;
@@ -99,14 +102,9 @@ final class PublicCaptureController extends Controller
         ]], Response::HTTP_CREATED);
     }
 
-    private function refuse(string $message): JsonResponse
-    {
-        return response()->json(['message' => $message], Response::HTTP_UNPROCESSABLE_ENTITY);
-    }
-
     public function photo(Request $request, int $photo): Response
     {
-        $link = $this->link($request);
+        $link = $this->link($request, $this->links);
 
         if (!$link instanceof CaptureLink) {
             return $link;
@@ -127,33 +125,9 @@ final class PublicCaptureController extends Controller
         ]);
     }
 
-    /** The live link, or the refusal to send back. */
-    private function link(Request $request): CaptureLink|JsonResponse
-    {
-        $link = $this->links->resolve((string) $request->header(self::TOKEN_HEADER, ''));
-
-        if ($link === null) {
-            return response()->json(['message' => 'This link is not valid.'], Response::HTTP_NOT_FOUND);
-        }
-
-        if (!$link->isLive()) {
-            return response()->json([
-                'message' => 'This link has expired or was withdrawn. Ask for a new one; your photos are saved.',
-            ], Response::HTTP_GONE);
-        }
-
-        return $link;
-    }
-
     /** @return array{id: int, taken_at: ?string} */
     private function photoPayload(EvidenceLink $photo): array
     {
         return ['id' => $photo->id, 'taken_at' => $photo->taken_at?->toIso8601String()];
-    }
-
-    /** @param array<string, mixed> $body */
-    private function private(array $body, int $status = Response::HTTP_OK): JsonResponse
-    {
-        return response()->json($body, $status, ['Cache-Control' => 'no-store, private']);
     }
 }

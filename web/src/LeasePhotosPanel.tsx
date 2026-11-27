@@ -27,7 +27,10 @@ type Photo = {
         captured_at: string | null;
     };
 };
-type Group = { room: Room | null; photos: Photo[] };
+type Statement = { id: number; phase: string; recorded_by: string; recorded_at: string };
+type Rating = Statement & { condition: string };
+type Issue = Statement & { kind: string; note: string; photo_ids: number[] };
+type Group = { room: Room | null; photos: Photo[]; ratings?: Rating[]; issues?: Issue[] };
 
 type Props = {
     apiBase: string;
@@ -42,6 +45,45 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
     }
 
     return (await response.json()) as T;
+}
+
+const said = (statement: Statement): string =>
+    `${statement.phase} · ${statement.recorded_by} · ${new Date(statement.recorded_at).toLocaleString()}`;
+
+/** What the tenant said about a room, with each problem's close-ups named. */
+function TenantNotes({ group }: { group: Group }) {
+    const ratings = group.ratings ?? [];
+    const issues = group.issues ?? [];
+
+    if (ratings.length === 0 && issues.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="mt-2 rounded bg-amber-50 p-2 text-sm">
+            <p className="text-xs text-slate-500">Tenant&apos;s own statement, not a verified finding or a liability decision.</p>
+            <ul className="mt-1 space-y-1">
+                {ratings.map((rating) => (
+                    <li key={`rating-${rating.id}`}>
+                        Condition: {rating.condition} <span className="text-slate-500">({said(rating)})</span>
+                    </li>
+                ))}
+                {issues.map((issue) => {
+                    const closeUps = group.photos.filter((photo) => issue.photo_ids.includes(photo.id));
+
+                    return (
+                        <li key={`issue-${issue.id}`}>
+                            <span className="font-medium capitalize">{issue.kind}</span>: {issue.note}{' '}
+                            <span className="text-slate-500">
+                                ({said(issue)} · {closeUps.length} close-up{closeUps.length === 1 ? '' : 's'}
+                                {closeUps.map((photo) => ` · ${photo.record.file_name}`)})
+                            </span>
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>
+    );
 }
 
 function PhotoPreview({ apiBase, headers, photo }: { apiBase: string; headers: () => Record<string, string>; photo: Photo }) {
@@ -315,6 +357,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
                                 onChanged={roomsChanged}
                             />
                         )}
+                        <TenantNotes group={group} />
                         <div className="mt-2 grid grid-cols-2 gap-3">
                             {(['incoming', 'interim', 'outgoing'] as const)
                                 .filter((lens) => lens !== 'interim' || group.photos.some((photo) => photo.phase === lens))

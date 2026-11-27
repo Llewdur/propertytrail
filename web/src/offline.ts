@@ -155,10 +155,18 @@ export type PendingCapture = {
     shot?: string;
     /** True while the tenant may still retake it; a held photo is not uploaded. */
     held?: boolean;
-    file: Blob;
-    fileName: string;
+    /** Set on a close-up of a reported problem. */
+    issueKey?: string | null;
+    /** A rating or a reported problem. An entry has either this or a photo. */
+    note?: CaptureNote;
+    file?: Blob;
+    fileName?: string;
     createdAt: string;
 };
+
+export type CaptureNote =
+    | { condition: string }
+    | { issueKey: string; issueKind: string; issueNote: string };
 
 export async function queueCapture(input: Omit<PendingCapture, 'id' | 'createdAt'>): Promise<string> {
     const capture: PendingCapture = { ...input, id: newId(), createdAt: new Date().toISOString() };
@@ -207,7 +215,7 @@ export async function flushCaptures(apiBase: string, token: string, captureKey: 
         let response: Response;
 
         try {
-            response = await fetch(`${apiBase}/capture/photos`, {
+            response = await fetch(`${apiBase}/capture/${capture.note === undefined ? 'photos' : 'notes'}`, {
                 method: 'POST',
                 credentials: 'omit',
                 headers: { Accept: 'application/json', 'X-Capture-Token': token },
@@ -228,7 +236,8 @@ export async function flushCaptures(apiBase: string, token: string, captureKey: 
             continue;
         }
 
-        result.errors.push(await responseFailure(response, 'A photo could not be uploaded.'));
+        const fallback = capture.note === undefined ? 'A photo could not be uploaded.' : 'An answer could not be saved.';
+        result.errors.push(await responseFailure(response, fallback));
 
         if (response.status === 422) {
             await backend.remove('captures', capture.id);
@@ -243,7 +252,11 @@ export async function flushCaptures(apiBase: string, token: string, captureKey: 
 
 function captureForm(capture: PendingCapture): FormData {
     const form = new FormData();
-    form.append('file', capture.file, capture.fileName);
+
+    if (capture.file !== undefined) {
+        form.append('file', capture.file, capture.fileName);
+    }
+
     form.append('taken_at', capture.createdAt);
 
     const room: Record<string, string | number | null | undefined> =
@@ -260,6 +273,7 @@ function captureForm(capture: PendingCapture): FormData {
         adjoins_room_key: capture.adjoinsKey,
         corner: capture.corner,
         shot: capture.shot,
+        ...noteFields(capture),
     };
 
     for (const [name, value] of Object.entries(fields)) {
@@ -269,6 +283,18 @@ function captureForm(capture: PendingCapture): FormData {
     }
 
     return form;
+}
+
+function noteFields(capture: PendingCapture): Record<string, string | null | undefined> {
+    const note = capture.note;
+
+    if (note === undefined) {
+        return { issue_key: capture.issueKey };
+    }
+
+    return 'condition' in note
+        ? { condition: note.condition }
+        : { issue_key: note.issueKey, issue_kind: note.issueKind, issue_note: note.issueNote };
 }
 
 function newId(): string {

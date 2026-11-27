@@ -1,5 +1,10 @@
 /** Where the tenant is in the guided capture, kept on the phone so they can stop at any step. */
-export type Shot = 'corner' | 'nearest' | 'extra';
+export type Shot = 'corner' | 'nearest' | 'extra' | 'closeup';
+
+export type IssueKind = 'broken' | 'damaged' | 'missing';
+
+/** The problem being reported. Its key ties the note to its close-up. */
+export type IssueDraft = { key: string; kind: IssueKind };
 
 /** A room that exists on the server (id), or one the tenant named that its first photo creates (key). */
 export type RoomRef = {
@@ -21,6 +26,14 @@ export type Step =
     | 'taken'
     | 'more'
     | 'room-check'
+    | 'rate'
+    | 'any-issue'
+    | 'issue-kind'
+    | 'issue-note'
+    | 'issue-photo'
+    | 'issue-more'
+    | 'anything-else'
+    | 'issue-room'
     | 'next-room'
     | 'last-check'
     | 'done';
@@ -32,6 +45,11 @@ export type Flow = {
     corner: number;
     shot: Shot;
     finished: string[];
+    /** The rooms walked on this phone, to pick from when reporting a problem later. */
+    rooms: RoomRef[];
+    issue: IssueDraft | null;
+    /** True while reporting a problem after the walk, not as part of finishing a room. */
+    later: boolean;
 };
 
 export const NEW_FLOW: Flow = {
@@ -41,6 +59,9 @@ export const NEW_FLOW: Flow = {
     corner: 1,
     shot: 'corner',
     finished: [],
+    rooms: [],
+    issue: null,
+    later: false,
 };
 
 const storageKey = (captureKey: string): string => `propertytrail-capture:${captureKey}`;
@@ -64,14 +85,15 @@ export function saveFlow(captureKey: string, flow: Flow): void {
 }
 
 /** The step to come back to. The camera does not reopen by itself. */
-export function resumeStep(step: Step): Step {
+export function resumeStep(step: Step, shot: Shot): Step {
     if (step === 'camera') {
-        return 'corner';
+        return shot === 'closeup' ? 'issue-photo' : 'corner';
     }
 
     return step === 'more' ? 'taken' : step;
 }
 
+/** A new key for a room or a reported problem. */
 export function newRoomKey(): string {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
