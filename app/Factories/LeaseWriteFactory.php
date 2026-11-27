@@ -26,4 +26,9 @@ final class LeaseWriteFactory
     {
         $lease->coveredAreas()->syncWithPivotValues($areaIds, ['organisation_id' => $lease->organisation_id]);
     }
+
+    public function addCoveredArea(Lease $lease, int $areaId): void
+    {
+        $lease->coveredAreas()->syncWithoutDetaching([$areaId => ['organisation_id' => $lease->organisation_id]]);
+    }
 }

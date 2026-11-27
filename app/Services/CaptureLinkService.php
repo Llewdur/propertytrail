@@ -9,8 +9,10 @@ use App\Models\CaptureLink;
 use App\Models\EvidenceLink;
 use App\Models\Lease;
 use App\Support\Tenancy\CurrentOrganisation;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -23,6 +25,7 @@ final class CaptureLinkService
     public function __construct(
         private readonly CurrentOrganisation $currentOrganisation,
         private readonly EvidenceIngestionService $ingestion,
+        private readonly CaptureRoomService $rooms,
     ) {}
 
     /**
@@ -111,11 +114,24 @@ final class CaptureLinkService
             ->whereIn('capture_link_id', CaptureLink::query()->where('lease_id', $link->lease_id)->select('id'));
     }
 
-    /** A retried upload of the same bytes to the same area returns the photo already held. */
-    public function addPhoto(CaptureLink $link, UploadedFile $file, int $areaId): EvidenceLink
+    /**
+     * Saves one photo to the room it names, creating the tenant's new room with
+     * its first photo. A retried upload of the same bytes to the same room returns
+     * the photo already held. Null means the lease does not cover the room.
+     *
+     * @param array<string, mixed> $data validated capture fields
+     */
+    public function capture(CaptureLink $link, Lease $lease, UploadedFile $file, array $data): ?EvidenceLink
     {
-        return DB::transaction(function () use ($link, $file, $areaId): EvidenceLink {
-            CaptureLink::query()->lockForUpdate()->find($link->id);
+        /** @var EvidenceLink|null $captured */
+        $captured = DB::transaction(function () use ($link, $lease, $file, $data): ?EvidenceLink {
+            // Locking the lease serialises two uploads creating the same room or saving the same photo.
+            Lease::query()->lockForUpdate()->find($link->lease_id);
+            $areaId = $this->rooms->roomId($lease, $data);
+
+            if ($areaId === null) {
+                return null;
+            }
 
             $hash = hash('sha256', (string) $file->get());
             $held = $this
@@ -128,18 +144,49 @@ final class CaptureLinkService
                 return $held;
             }
 
-            $record = $this->ingestion->ingest($file, Lease::class, $link->lease_id, null, [
+            $corner = ($data['corner'] ?? null) !== null ? (int) $data['corner'] : null;
+            $shot = ($data['shot'] ?? null) !== null ? (string) $data['shot'] : null;
+
+            $record = $this->ingestion->ingest($file, Lease::class, $link->lease_id, $this->shotLabel($shot, $corner), [
                 'phase' => $link->phase,
                 'area_room_id' => $areaId,
-                'taken_at' => now(),
+                'taken_at' => $this->takenAt($data['taken_at'] ?? null),
             ]);
 
             /** @var EvidenceLink $photo */
             $photo = $record->links()->latest('id')->firstOrFail();
-            $photo->forceFill(['capture_link_id' => $link->id])->save();
+            $photo->forceFill([
+                'capture_link_id' => $link->id,
+                'capture_corner' => $corner,
+                'capture_shot' => $shot,
+            ])->save();
 
             return $photo;
         });
+
+        return $captured;
+    }
+
+    private function shotLabel(?string $shot, ?int $corner): ?string
+    {
+        return match (true) {
+            $shot === 'extra' => 'Extra photo',
+            $corner === null => null,
+            $shot === 'nearest' => "Corner {$corner} (nearest spot)",
+            default => "Corner {$corner}",
+        };
+    }
+
+    /** The phone's capture time, so photos queued offline keep their order. A clock running ahead is ignored. */
+    private function takenAt(mixed $value): CarbonInterface
+    {
+        if (!is_string($value) || $value === '') {
+            return now();
+        }
+
+        $takenAt = Carbon::parse($value)->setTimezone((string) config('app.timezone'));
+
+        return $takenAt->isFuture() ? now() : $takenAt;
     }
 
     /** @param array<string, mixed> $values */

@@ -29,6 +29,21 @@ final class AreaRoomRepository
         return $room;
     }
 
+    public function findByCaptureKey(int $propertyId, string $captureKey): ?AreaRoom
+    {
+        return AreaRoom::query()->where('property_id', $propertyId)->where('capture_key', $captureKey)->first();
+    }
+
+    public function nextSortOrder(int $propertyId): int
+    {
+        return (int) AreaRoom::query()->where('property_id', $propertyId)->max('sort_order') + 1;
+    }
+
+    public function countCaptured(int $propertyId): int
+    {
+        return AreaRoom::query()->where('property_id', $propertyId)->whereNotNull('capture_key')->count();
+    }
+
     public function findSiteArea(int $siteId, int $id): ?AreaRoom
     {
         return AreaRoom::query()->where('site_id', $siteId)->find($id);
