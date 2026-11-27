@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\BillingController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\EvidenceDownloadController;
+use App\Http\Controllers\Api\HistoryController;
 use App\Http\Controllers\Api\InspectionController;
 use App\Http\Controllers\Api\InspectionDeliveryController;
 use App\Http\Controllers\Api\InspectionReportController;
@@ -25,6 +26,7 @@ use App\Http\Controllers\Api\PilotEnquiryController;
 use App\Http\Controllers\Api\PropertyAssignmentController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\PublicCaptureController;
+use App\Http\Controllers\Api\PublicCaptureHistoryController;
 use App\Http\Controllers\Api\PublicCaptureNoteController;
 use App\Http\Controllers\Api\PublicCapturePasskeyController;
 use App\Http\Controllers\Api\PublicCaptureSelfieController;
@@ -57,6 +59,7 @@ Route::middleware('throttle:120,1,capture')->group(function (): void {
     Route::get('capture/sign-off', [PublicCaptureSignOffController::class, 'show']);
     Route::post('capture/sign-off', [PublicCaptureSignOffController::class, 'store']);
     Route::get('capture/sign-off/copy', [PublicCaptureSignOffController::class, 'copy']);
+    Route::get('capture/history', [PublicCaptureHistoryController::class, 'index']);
 });
 
 Route::middleware('throttle:6,1')->group(function (): void {
@@ -109,6 +112,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('evidence/{evidence}/download', EvidenceDownloadController::class)->whereNumber('evidence');
         Route::get('leases/{lease}', [LeaseController::class, 'show']);
         Route::get('leases/{lease}/areas', [LeaseAreaController::class, 'show'])->whereNumber('lease');
+        Route::get('leases/{lease}/history', [HistoryController::class, 'lease'])->whereNumber('lease');
         Route::get('inspections/{inspection}', [InspectionController::class, 'show'])->whereNumber('inspection');
         Route::get('inspections/{inspection}/deliveries', [InspectionDeliveryController::class, 'index'])->whereNumber(
             'inspection',
@@ -213,5 +217,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
     );
 
     Route::get('audit-logs', [AuditLogController::class, 'index']);
+    Route::get('users/{user}/history', [HistoryController::class, 'user'])->whereNumber('user');
     Route::get('billing/entitlement', [BillingController::class, 'show']);
 });

@@ -93,7 +93,7 @@ final class CaptureLinkService
 
         if ($link !== null && $link->isLive()) {
             $this->currentOrganisation->set($link->organisation_id);
-            $link->forceFill(['last_used_at' => now()])->save();
+            $link->markUsed();
         }
 
         return $link;

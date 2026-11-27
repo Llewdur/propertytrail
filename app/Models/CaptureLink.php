@@ -54,6 +54,27 @@ final class CaptureLink extends Model
         return $this->revoked_at === null && $this->expires_at->isFuture();
     }
 
+    /** Stamps this visit, and records the tenant's first open of this link in their history. */
+    public function markUsed(): void
+    {
+        $firstOpen = $this->last_used_at === null;
+        $this->forceFill(['last_used_at' => now()])->save();
+
+        if (!$firstOpen) {
+            return;
+        }
+
+        AuditLog::query()->create([
+            'organisation_id' => $this->organisation_id,
+            'actor_user_id' => null,
+            'auditable_type' => $this->getMorphClass(),
+            'auditable_id' => $this->getKey(),
+            'lease_id' => $this->lease_id,
+            'event' => 'capture_link_opened',
+            'new_values' => ['capture_link_id' => $this->id, 'phase' => $this->phase],
+        ]);
+    }
+
     public static function hash(#[\SensitiveParameter] string $plainToken): string
     {
         return hash('sha256', $plainToken);
