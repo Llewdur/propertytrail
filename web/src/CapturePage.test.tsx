@@ -100,6 +100,34 @@ describe('guided capture', () => {
         expect((init.body as FormData).get('file')).toBeInstanceOf(File);
     });
 
+    it('asks for notifications before the selfie and offers WhatsApp reminders instead', async () => {
+        const posts: [string, RequestInit][] = [];
+        vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+            if (init?.method === 'POST') {
+                posts.push([url, init]);
+                return new Response(JSON.stringify({ data: { required: true, status: 'fallback', opt_in_url: null } }), { status: 200 });
+            }
+
+            return new Response(JSON.stringify({
+                data: { ...capture, selfie_taken: false, notifications: { required: true, status: 'pending', opt_in_url: 'https://push.test/o/CODE' } },
+            }), { status: 200 });
+        }));
+
+        render(<CapturePage apiBase="/api/v1" token="secret-token" />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Start' }));
+        expect(screen.getByRole('heading', { name: 'Turn on notifications' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Turn on notifications' }).getAttribute('href')).toBe('https://push.test/o/CODE');
+
+        fireEvent.click(screen.getByRole('button', { name: "I can't turn them on" }));
+        fireEvent.change(screen.getByLabelText('WhatsApp number'), { target: { value: '+27821234567' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Remind me on WhatsApp' }));
+
+        await screen.findByRole('heading', { name: 'Take a selfie' });
+        const [[target, init]] = posts;
+        expect(target).toBe('/api/v1/capture/notifications/fallback');
+        expect(JSON.parse(init.body as string)).toEqual({ phone: '+27821234567' });
+    });
+
     it('walks from a named room through its corners and uploads them with the new room details', async () => {
         const uploads: FormData[] = [];
         vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {

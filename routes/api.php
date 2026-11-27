@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\PublicCaptureController;
 use App\Http\Controllers\Api\PublicCaptureHistoryController;
 use App\Http\Controllers\Api\PublicCaptureNoteController;
+use App\Http\Controllers\Api\PublicCaptureNotificationController;
 use App\Http\Controllers\Api\PublicCapturePasskeyController;
 use App\Http\Controllers\Api\PublicCaptureSelfieController;
 use App\Http\Controllers\Api\PublicCaptureSignOffController;
@@ -49,6 +50,7 @@ Route::middleware('throttle:30,1')->group(function (): void {
 Route::middleware('throttle:120,1,capture')->group(function (): void {
     Route::get('capture', [PublicCaptureController::class, 'show']);
     Route::post('capture/photos', [PublicCaptureController::class, 'store']);
+    Route::post('capture/notifications/fallback', [PublicCaptureNotificationController::class, 'fallback']);
     Route::post('capture/notes', [PublicCaptureNoteController::class, 'store']);
     Route::post('capture/selfie', [PublicCaptureSelfieController::class, 'store']);
     Route::post('capture/passkey/registration-options', [PublicCapturePasskeyController::class, 'registrationOptions']);

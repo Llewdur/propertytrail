@@ -31,7 +31,7 @@ final class CaptureLinkService
 
     /**
      * Issues the lease's one live link, revoking any earlier one. The plain
-     * token is returned once and never stored.
+     * token is returned once; it is kept only encrypted, for reminders.
      *
      * @return array{link: CaptureLink, url: string}
      */
@@ -47,14 +47,20 @@ final class CaptureLinkService
                 'lease_id' => $lease->getKey(),
                 'phase' => $phase,
                 'token_hash' => CaptureLink::hash($plain),
+                'token_encrypted' => $plain,
                 'expires_at' => now()->addDays(self::LINK_TTL_DAYS),
                 'created_by_user_id' => $userId,
             ]);
             $this->audit($lease, 'capture_link_issued', $userId, ['capture_link_id' => $link->id, 'phase' => $phase]);
 
-            // In the fragment, which browsers never send: the token stays out of server, proxy and referrer logs.
-            return ['link' => $link, 'url' => url('/capture') . '#' . $plain];
+            return ['link' => $link, 'url' => self::url($plain)];
         });
+    }
+
+    /** In the fragment, which browsers never send: the token stays out of server, proxy and referrer logs. */
+    public static function url(#[\SensitiveParameter] string $plainToken): string
+    {
+        return url('/capture') . '#' . $plainToken;
     }
 
     public function revoke(Lease $lease, ?int $userId): int

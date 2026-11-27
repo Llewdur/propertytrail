@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Adapters\FleetAccountingAdapter;
+use App\Adapters\FleetPushAdapter;
 use App\Adapters\PulseAdapter;
 use App\Adapters\R2StorageAdapter;
 use App\Adapters\ZekiniMailAdapter;
@@ -12,6 +13,7 @@ use App\Adapters\ZekiniWhatsAppAdapter;
 use App\Contracts\Adapters\AccountingAdapterInterface;
 use App\Contracts\Adapters\MailAdapterInterface;
 use App\Contracts\Adapters\PulseAdapterInterface;
+use App\Contracts\Adapters\PushAdapterInterface;
 use App\Contracts\Adapters\StorageAdapterInterface;
 use App\Contracts\Adapters\WhatsAppAdapterInterface;
 use App\Factories\AreaRoomWriteFactory;
@@ -61,6 +63,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(WhatsAppAdapterInterface::class, ZekiniWhatsAppAdapter::class);
         $this->app->bind(MailAdapterInterface::class, ZekiniMailAdapter::class);
         $this->app->bind(PulseAdapterInterface::class, PulseAdapter::class);
+        $this->app->bind(PushAdapterInterface::class, FleetPushAdapter::class);
 
         $this->app->singleton(OrganisationRepository::class);
         $this->app->singleton(PropertyRepository::class);

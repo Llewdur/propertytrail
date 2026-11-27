@@ -122,6 +122,7 @@ it('shows only the lease scope to a tenant with no account', function (): void {
             'locked',
             'tenant_name',
             'selfie_taken',
+            'notifications',
             'areas',
         ])
         ->and($data['areas'])

@@ -14,6 +14,7 @@ use App\Models\Lease;
 use App\Models\Property;
 use App\Repositories\AreaRoomRepository;
 use App\Services\CaptureLinkService;
+use App\Services\CaptureNotificationService;
 use App\Services\CapturePasskeyService;
 use App\Services\CaptureSelfieService;
 use Illuminate\Http\JsonResponse;
@@ -35,6 +36,7 @@ final class PublicCaptureController extends Controller
         private readonly StorageAdapterInterface $storage,
         private readonly CaptureSelfieService $selfies,
         private readonly CapturePasskeyService $passkeys,
+        private readonly CaptureNotificationService $notifications,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -81,6 +83,7 @@ final class PublicCaptureController extends Controller
                 ...$header,
                 'tenant_name' => $lease->tenant_name,
                 'selfie_taken' => $this->selfies->taken($link),
+                'notifications' => $this->notifications->state($link),
                 'areas' => $areas,
             ],
         ]);
@@ -99,6 +102,13 @@ final class PublicCaptureController extends Controller
 
         if (!$file instanceof UploadedFile) {
             return $this->refuse('Choose a photo to upload.');
+        }
+
+        if (!$this->notifications->cleared($link)) {
+            return response()->json([
+                'message' => 'Turn on notifications first, so we can remind you to finish. Your photos are saved on this phone.',
+                'notifications_required' => true,
+            ], Response::HTTP_CONFLICT);
         }
 
         if ($this->links->photos($link)->count() >= CaptureLinkService::MAX_PHOTOS) {
