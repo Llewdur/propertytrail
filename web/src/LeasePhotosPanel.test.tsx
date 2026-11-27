@@ -49,6 +49,12 @@ describe('LeasePhotosPanel', () => {
                 }));
             }
 
+            if (url.endsWith('/leases/3/areas')) {
+                return Promise.resolve(respond({
+                    data: { available: [{ id: 1, name: 'Garden' }, { id: 2, name: 'Pool' }], covered_ids: [1] },
+                }));
+            }
+
             if (url.includes('/lease-photos')) {
                 return Promise.resolve(respond({
                     data: { property_id: 7, groups: [{ room: null, photos: [photo] }] },
@@ -77,6 +83,13 @@ describe('LeasePhotosPanel', () => {
         render(<LeasePhotosPanel apiBase="/api/v1" organisationId={3} />);
 
         expect(await screen.findByText('Could not load properties.')).toBeTruthy();
+    });
+
+    it('offers only the areas the lease covers', async () => {
+        render(<LeasePhotosPanel apiBase="/api/v1" organisationId={3} />);
+
+        expect(await screen.findByRole('option', { name: 'Garden' })).toBeTruthy();
+        expect(screen.queryByRole('option', { name: 'Pool' })).toBeNull();
     });
 
     it('previews and offers download for attached lease photos', async () => {

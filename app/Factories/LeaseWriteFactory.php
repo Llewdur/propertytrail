@@ -20,4 +20,10 @@ final class LeaseWriteFactory
 
         return Lease::query()->create($data);
     }
+
+    /** @param array<int, int> $areaIds */
+    public function setCoveredAreas(Lease $lease, array $areaIds): void
+    {
+        $lease->coveredAreas()->syncWithPivotValues($areaIds, ['organisation_id' => $lease->organisation_id]);
+    }
 }

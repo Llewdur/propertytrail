@@ -49,6 +49,8 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(OrganisationRepository::class);
         $this->app->singleton(PropertyRepository::class);
+        $this->app->singleton(\App\Repositories\SiteRepository::class);
+        $this->app->singleton(\App\Factories\SiteWriteFactory::class);
         $this->app->singleton(AreaRoomRepository::class);
         $this->app->singleton(EvidenceRepository::class);
         $this->app->singleton(LeaseRepository::class);

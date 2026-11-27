@@ -11,6 +11,7 @@ use App\Models\Lease;
 use App\Models\Organisation;
 use App\Models\Property;
 use App\Models\UsageRecord;
+use App\Repositories\AreaRoomRepository;
 use App\Services\Billing\EntitlementService;
 use App\Services\InspectionTemplateService;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ final class InspectionWriteFactory
     public function __construct(
         private readonly EntitlementService $billing,
         private readonly InspectionTemplateService $templates,
+        private readonly AreaRoomRepository $areas,
     ) {}
 
     public function create(Property $property, string $phase, ?Lease $lease, ?string $overallNotes): Inspection
@@ -44,7 +46,11 @@ final class InspectionWriteFactory
 
             $sectionSort = 0;
 
-            foreach ($property->rooms()->orderBy('sort_order')->orderBy('id')->get() as $room) {
+            $rooms = $lease === null
+                ? $this->areas->allForProperty($property->id)
+                : $this->areas->coveredByLease($lease);
+
+            foreach ($rooms as $room) {
                 $section = InspectionSection::query()->create([
                     'organisation_id' => $property->organisation_id,
                     'inspection_id' => $inspection->id,
@@ -56,10 +62,7 @@ final class InspectionWriteFactory
 
                 $itemSort = 0;
 
-                foreach ($this->templates->itemsForRoomType(
-                    $organisation,
-                    (string) $room->room_type,
-                ) as $templateItem) {
+                foreach ($this->templates->itemsForRoomType($organisation, $room->room_type) as $templateItem) {
                     InspectionItem::query()->create([
                         'organisation_id' => $property->organisation_id,
                         'inspection_section_id' => $section->id,

@@ -1,5 +1,7 @@
 import { Button, Card } from '@zekini/ui';
 import { useCallback, useEffect, useState } from 'react';
+import LeaseCoverage from './LeaseCoverage';
+import SitesSection, { type Site } from './SitesSection';
 
 type Room = {
     id: number;
@@ -23,6 +25,7 @@ type Property = {
     province: string | null;
     postal_code: string | null;
     status: string;
+    owning_entity_name?: string | null;
     rooms: Room[];
 };
 
@@ -92,6 +95,12 @@ export default function SetupPanel({ apiBase, organisationId, csrfToken = '', re
     const [postalCode, setPostalCode] = useState('');
     const [propertyStatus, setPropertyStatus] = useState<string>(PROPERTY_STATUSES[0]);
 
+    const [sites, setSites] = useState<Site[]>([]);
+    const [sitesVersion, setSitesVersion] = useState(0);
+    const [siteId, setSiteId] = useState('');
+    const [ownerName, setOwnerName] = useState('');
+    const [ownerRegistration, setOwnerRegistration] = useState('');
+
     const [roomName, setRoomName] = useState('');
     const [roomType, setRoomType] = useState<string>(ROOM_TYPES[0]);
     const [sortOrder, setSortOrder] = useState('0');
@@ -142,6 +151,19 @@ export default function SetupPanel({ apiBase, organisationId, csrfToken = '', re
     }, [apiBase, headers, refreshKey]);
 
     useEffect(() => {
+        fetch(`${apiBase}/sites`, { headers: headers(), credentials: 'same-origin' })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error('load');
+                }
+
+                return response.json() as Promise<{ data: Site[] }>;
+            })
+            .then((payload) => setSites(payload.data))
+            .catch(() => setLoadError('Could not load sites.'));
+    }, [apiBase, headers, refreshKey, sitesVersion]);
+
+    useEffect(() => {
         if (propertyId === null) {
             setRooms([]);
             setLeases([]);
@@ -183,6 +205,9 @@ export default function SetupPanel({ apiBase, organisationId, csrfToken = '', re
             province: province === '' ? null : province,
             postal_code: postalCode === '' ? null : postalCode,
             status: propertyStatus,
+            site_id: siteId === '' ? null : Number(siteId),
+            owning_entity_name: ownerName === '' ? null : ownerName,
+            owning_entity_registration_number: ownerRegistration === '' ? null : ownerRegistration,
         });
 
         if (!response.ok) {
@@ -199,6 +224,9 @@ export default function SetupPanel({ apiBase, organisationId, csrfToken = '', re
         setCity('');
         setProvince('');
         setPostalCode('');
+        setOwnerName('');
+        setOwnerRegistration('');
+        setSitesVersion((current) => current + 1);
         onChanged?.();
     }
 
@@ -313,6 +341,21 @@ export default function SetupPanel({ apiBase, organisationId, csrfToken = '', re
                             </select>
                         </label>
                     </div>
+                    <label className="block text-sm">
+                        Part of site
+                        <select className={fieldClass} value={siteId} onChange={(event) => setSiteId(event.target.value)}>
+                            <option value="">No site</option>
+                            {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+                        </select>
+                    </label>
+                    <label className="block text-sm">
+                        Owning legal entity
+                        <input className={fieldClass} value={ownerName} onChange={(event) => setOwnerName(event.target.value)} />
+                    </label>
+                    <label className="block text-sm">
+                        Entity registration number
+                        <input className={fieldClass} value={ownerRegistration} onChange={(event) => setOwnerRegistration(event.target.value)} />
+                    </label>
                     <Button onClick={() => void createProperty()}>Create property</Button>
                 </section>
 
@@ -397,11 +440,24 @@ export default function SetupPanel({ apiBase, organisationId, csrfToken = '', re
                             <li key={lease.id}>
                                 {lease.lease_reference} · {lease.tenant_name} · {label(lease.status)} ·{' '}
                                 <span className="text-slate-500">Org #{lease.organisation_id}</span>
+                                <LeaseCoverage
+                                    url={`${apiBase}/leases/${lease.id}/areas`}
+                                    leaseReference={lease.lease_reference}
+                                    headers={headers}
+                                />
                             </li>
                         ))}
                     </ul>
                 </section>
             </div>
+
+            <SitesSection
+                sites={sites}
+                apiBase={apiBase}
+                send={(url, body) => send('POST', url, body)}
+                failureMessages={failureMessages}
+                onSaved={() => setSitesVersion((current) => current + 1)}
+            />
 
             <h3 className="mt-6 font-medium">Properties</h3>
             {properties.length === 0 ? (
@@ -420,6 +476,7 @@ export default function SetupPanel({ apiBase, organisationId, csrfToken = '', re
                             </div>
                             <div className="text-slate-500">
                                 {property.rooms?.length ?? 0} room(s)
+                                {property.owning_entity_name != null && ` · Owner: ${property.owning_entity_name}`}
                             </div>
                         </li>
                     ))}
