@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Concerns;
 
 use App\Models\CaptureLink;
 use App\Services\CaptureLinkService;
+use App\Services\CapturePasskeyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -32,6 +33,29 @@ trait AnswersCaptureRequests
         }
 
         return $link;
+    }
+
+    /** The live link, refused while its passkey has not unlocked this visit. */
+    private function unlockedLink(Request $request, CaptureLinkService $links): CaptureLink|JsonResponse
+    {
+        $link = $this->link($request, $links);
+
+        if ($link instanceof CaptureLink && !$this->isUnlocked($request, $link)) {
+            return response()->json([
+                'message' => 'Unlock with your phone to continue. Your photos are saved on it.',
+                'locked' => true,
+            ], Response::HTTP_LOCKED);
+        }
+
+        return $link;
+    }
+
+    private function isUnlocked(Request $request, CaptureLink $link): bool
+    {
+        return app(CapturePasskeyService::class)->unlocked(
+            $link,
+            (string) $request->headers->get(CapturePasskeyService::UNLOCK_HEADER, ''),
+        );
     }
 
     private function refuse(string $message): JsonResponse

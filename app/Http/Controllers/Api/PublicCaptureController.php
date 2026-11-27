@@ -14,6 +14,7 @@ use App\Models\Lease;
 use App\Models\Property;
 use App\Repositories\AreaRoomRepository;
 use App\Services\CaptureLinkService;
+use App\Services\CapturePasskeyService;
 use App\Services\CaptureSelfieService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,6 +34,7 @@ final class PublicCaptureController extends Controller
         private readonly AreaRoomRepository $areas,
         private readonly StorageAdapterInterface $storage,
         private readonly CaptureSelfieService $selfies,
+        private readonly CapturePasskeyService $passkeys,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -44,6 +46,21 @@ final class PublicCaptureController extends Controller
         }
 
         $lease = Lease::query()->findOrFail($link->lease_id);
+        $locked = !$this->isUnlocked($request, $link);
+        $header = [
+            'capture_key' => $link->lease_id . ':' . $link->phase,
+            'property_name' => Property::query()->findOrFail($lease->property_id)->name,
+            'phase' => $link->phase,
+            'expires_at' => $link->expires_at->toIso8601String(),
+            'passkey_registered' => $this->passkeys->registered($link),
+            'locked' => $locked,
+        ];
+
+        // Until the phone unlocks, the link shows only enough to ask for the unlock.
+        if ($locked) {
+            return $this->private(['data' => [...$header, 'tenant_name' => '', 'selfie_taken' => true, 'areas' => []]]);
+        }
+
         $photos = $this->links->photos($link)->orderBy('id')->get()->groupBy('area_room_id');
 
         $areas = [];
@@ -60,12 +77,9 @@ final class PublicCaptureController extends Controller
 
         return $this->private([
             'data' => [
-                // Lets the phone match queued photos to the same capture after a new link is issued.
-                'capture_key' => $link->lease_id . ':' . $link->phase,
-                'property_name' => Property::query()->findOrFail($lease->property_id)->name,
+                // capture_key lets the phone match queued photos to the same capture after a new link is issued.
+                ...$header,
                 'tenant_name' => $lease->tenant_name,
-                'phase' => $link->phase,
-                'expires_at' => $link->expires_at->toIso8601String(),
                 'selfie_taken' => $this->selfies->taken($link),
                 'areas' => $areas,
             ],
@@ -74,7 +88,7 @@ final class PublicCaptureController extends Controller
 
     public function store(CapturePhotoRequest $request): JsonResponse
     {
-        $link = $this->link($request, $this->links);
+        $link = $this->unlockedLink($request, $this->links);
 
         if (!$link instanceof CaptureLink) {
             return $link;
@@ -107,7 +121,7 @@ final class PublicCaptureController extends Controller
 
     public function photo(Request $request, int $photo): Response
     {
-        $link = $this->link($request, $this->links);
+        $link = $this->unlockedLink($request, $this->links);
 
         if (!$link instanceof CaptureLink) {
             return $link;

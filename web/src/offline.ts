@@ -202,7 +202,12 @@ export async function queuedCaptures(captureKey: string): Promise<PendingCapture
  * its reason; one that is too large for the server stays, so it is not lost;
  * anything else (offline, busy, link expired) stays for a retry.
  */
-export async function flushCaptures(apiBase: string, token: string, captureKey: string): Promise<{ uploaded: number; errors: string[] }> {
+export async function flushCaptures(
+    apiBase: string,
+    token: string,
+    captureKey: string,
+    unlock: string | null = null,
+): Promise<{ uploaded: number; errors: string[] }> {
     const result = { uploaded: 0, errors: [] as string[] };
 
     for (const capture of await queuedCaptures(captureKey)) {
@@ -218,7 +223,8 @@ export async function flushCaptures(apiBase: string, token: string, captureKey: 
             response = await fetch(`${apiBase}/capture/${capture.note === undefined ? 'photos' : 'notes'}`, {
                 method: 'POST',
                 credentials: 'omit',
-                headers: { Accept: 'application/json', 'X-Capture-Token': token },
+                // A locked link answers 423, which keeps the item here for after the unlock.
+                headers: { Accept: 'application/json', 'X-Capture-Token': token, ...(unlock === null ? {} : { 'X-Capture-Unlock': unlock }) },
                 body: form,
             });
         } catch {

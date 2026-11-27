@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import CameraScreen from './CameraScreen';
 import { loadFlow, NEW_FLOW, newRoomKey, resumeStep, saveFlow, type Flow, type IssueKind, type RoomRef, type Shot } from './captureFlow';
+import { passkeysSupported, registerPasskey, unlockWithPasskey } from './capturePasskey';
 import { compressImage } from './compressImage';
 import { dropCapture, flushCaptures, queueCapture, queuedCaptures, releaseCaptures, type CaptureNote } from './offline';
 
@@ -12,6 +13,8 @@ type Capture = {
     phase: string;
     expires_at: string;
     selfie_taken: boolean;
+    passkey_registered: boolean;
+    locked: boolean;
     areas: Area[];
 };
 
@@ -42,6 +45,19 @@ const ROOM_STEPS = [
 const PRIMARY = 'block w-full rounded-lg bg-slate-900 px-4 py-4 text-lg font-semibold text-white disabled:opacity-40';
 const SECONDARY = 'block w-full rounded-lg border border-slate-300 bg-white px-4 py-3';
 const LINK = 'block w-full py-2 text-sm underline';
+
+/** Browser storage can be missing or blocked; the page then simply asks again. */
+function stored(store: () => Storage, key: string, value?: string): string | null {
+    try {
+        if (value !== undefined) {
+            store().setItem(key, value);
+        }
+
+        return store().getItem(key);
+    } catch {
+        return value ?? null;
+    }
+}
 
 const sameRoom = (name: string, other: string): boolean => name.trim().toLowerCase() === other.trim().toLowerCase();
 const roomMark = (room: RoomRef): string => room.key ?? `id:${room.id}`;
@@ -94,13 +110,24 @@ export default function CapturePage({ apiBase, token }: Props) {
     const [saving, setSaving] = useState(false);
     const [note, setNote] = useState('');
     const [selfieCamera, setSelfieCamera] = useState(false);
+    // This visit's phone unlock, kept only for this tab.
+    const unlockKey = `capture-unlock:${token}`;
+    const [unlock, setUnlock] = useState<string | null>(() => stored(() => window.sessionStorage, unlockKey));
+    const [passkeyDeclined, setPasskeyDeclined] = useState(false);
     const syncing = useRef(false);
+
+    const capturing = (extra: Record<string, string> = {}): Record<string, string> => ({
+        Accept: 'application/json',
+        'X-Capture-Token': token,
+        ...(unlock === null ? {} : { 'X-Capture-Unlock': unlock }),
+        ...extra,
+    });
 
     const load = useCallback(async (): Promise<void> => {
         try {
             const response = await fetch(`${apiBase}/capture`, {
                 credentials: 'omit',
-                headers: { Accept: 'application/json', 'X-Capture-Token': token },
+                headers: { Accept: 'application/json', 'X-Capture-Token': token, ...(unlock === null ? {} : { 'X-Capture-Unlock': unlock }) },
             });
             const payload = (await response.json().catch(() => null)) as { data?: Capture; message?: string } | null;
 
@@ -114,9 +141,10 @@ export default function CapturePage({ apiBase, token }: Props) {
         } catch {
             setRefusal('You are offline. This page loads again when you reconnect.');
         }
-    }, [apiBase, token]);
+    }, [apiBase, token, unlock]);
 
-    const captureKey = capture?.capture_key ?? null;
+    // Photos wait on the phone until the link is unlocked.
+    const captureKey = capture === null || capture.locked ? null : capture.capture_key;
 
     const sync = useCallback(async (): Promise<void> => {
         if (captureKey === null || syncing.current) {
@@ -132,7 +160,7 @@ export default function CapturePage({ apiBase, token }: Props) {
 
             // Repeats so that a photo added while a pass was running is not left waiting.
             do {
-                result = await flushCaptures(apiBase, token, captureKey);
+                result = await flushCaptures(apiBase, token, captureKey, unlock);
                 uploaded += result.uploaded;
                 errors = result.errors;
             } while (result.uploaded > 0);
@@ -146,7 +174,7 @@ export default function CapturePage({ apiBase, token }: Props) {
         } finally {
             syncing.current = false;
         }
-    }, [apiBase, token, captureKey, load]);
+    }, [apiBase, token, captureKey, unlock, load]);
 
     useEffect(() => {
         void load();
@@ -299,7 +327,7 @@ export default function CapturePage({ apiBase, token }: Props) {
             const response = await fetch(`${apiBase}/capture/selfie`, {
                 method: 'POST',
                 credentials: 'omit',
-                headers: { Accept: 'application/json', 'X-Capture-Token': token },
+                headers: capturing(),
                 body,
             });
             const payload = (await response.json().catch(() => null)) as { message?: string } | null;
@@ -316,6 +344,41 @@ export default function CapturePage({ apiBase, token }: Props) {
         } finally {
             setSaving(false);
         }
+    }
+
+    function remember(next: string): void {
+        stored(() => window.sessionStorage, unlockKey, next);
+        setUnlock(next);
+    }
+
+    /** Asked for by the phone itself; the face or fingerprint never reaches this page. */
+    async function passkey(action: 'register' | 'unlock'): Promise<void> {
+        if (saving) {
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            remember(action === 'register' ? await registerPasskey(apiBase, token, unlock) : await unlockWithPasskey(apiBase, token));
+            setError(null);
+
+            if (action === 'register') {
+                setCapture((current) => (current === null ? current : { ...current, passkey_registered: true }));
+            }
+        } catch (failure) {
+            const cancelled = failure instanceof DOMException;
+            setError(cancelled ? 'The phone did not confirm it was you. Try again.' : (failure as Error).message);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    const declineKey = `capture-passkey-declined:${capture?.capture_key ?? ''}`;
+
+    function declinePasskey(): void {
+        stored(() => window.localStorage, declineKey, '1');
+        setPasskeyDeclined(true);
     }
 
     const shoot = (shot: Shot): void => go({ step: 'camera', shot });
@@ -394,6 +457,26 @@ export default function CapturePage({ apiBase, token }: Props) {
         );
     }
 
+    if (capture.locked) {
+        return (
+            <Screen
+                notice={status}
+                actions={
+                    <button type="button" className={PRIMARY} disabled={saving} onClick={() => void passkey('unlock')}>
+                        {saving ? 'Checking…' : 'Unlock with this phone'}
+                    </button>
+                }
+            >
+                <Request>Unlock to continue</Request>
+                <p>{capture.property_name} · {capture.phase} photos</p>
+                <p className="text-sm text-slate-500">
+                    This link is locked to the phone that started it. Use its face, fingerprint or PIN unlock. Lost that phone? Ask the
+                    property&apos;s staff to reset the phone unlock.
+                </p>
+            </Screen>
+        );
+    }
+
     const photographed = capture.areas.filter((area) => area.photos.length > 0);
     const roomNumber = Math.max(flow.finished.length, resumeAt?.finished.length ?? 0) + 1;
     const room = flow.room;
@@ -467,6 +550,32 @@ export default function CapturePage({ apiBase, token }: Props) {
             >
                 <Request>Take a selfie</Request>
                 <p>It shows who took these photos. Only the property&apos;s staff can see it.</p>
+            </Screen>
+        );
+    }
+
+    const offerPasskey =
+        !capture.passkey_registered && !passkeyDeclined && passkeysSupported() && stored(() => window.localStorage, declineKey) === null;
+
+    if (offerPasskey) {
+        return (
+            <Screen
+                onStop={stop}
+                notice={status}
+                actions={
+                    <>
+                        <button type="button" className={PRIMARY} disabled={saving} onClick={() => void passkey('register')}>
+                            {saving ? 'Setting up…' : 'Lock it to this phone'}
+                        </button>
+                        <button type="button" className={SECONDARY} disabled={saving} onClick={declinePasskey}>Not now</button>
+                    </>
+                }
+            >
+                <Request>Lock this link to your phone?</Request>
+                <p>
+                    Next time, the link asks for this phone&apos;s face, fingerprint or PIN unlock before photos can be sent. The face or
+                    fingerprint stays on the phone.
+                </p>
             </Screen>
         );
     }

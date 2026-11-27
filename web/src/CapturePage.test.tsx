@@ -168,6 +168,100 @@ describe('guided capture', () => {
     });
 });
 
+describe('phone unlock', () => {
+    const capture = {
+        capture_key: '7:incoming',
+        property_name: 'Our House',
+        tenant_name: 'T. Tenant',
+        phase: 'incoming',
+        expires_at: '2027-01-01T00:00:00Z',
+        selfie_taken: true,
+        passkey_registered: false,
+        locked: false,
+        areas: [],
+    };
+    const rawId = new Uint8Array([1, 2, 3]).buffer;
+    const bytes = new Uint8Array([9]).buffer;
+
+    beforeEach(() => {
+        window.sessionStorage.clear();
+        vi.stubGlobal('PublicKeyCredential', function PublicKeyCredential() {});
+    });
+
+    afterEach(() => {
+        Reflect.deleteProperty(navigator, 'credentials');
+    });
+
+    const stubCredentials = (credentials: Partial<CredentialsContainer>): void => {
+        Object.defineProperty(navigator, 'credentials', { value: credentials, configurable: true });
+    };
+
+    it('offers to lock the link to the phone, then sends the new credential and keeps the unlock', async () => {
+        const posts: [string, RequestInit][] = [];
+        vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+            if (init?.method === 'POST') {
+                posts.push([url, init]);
+                const data = url.endsWith('registration-options')
+                    ? { options: { challenge: 'AQID', rp: { id: 'localhost' }, user: { id: 'BAU', name: 'x', displayName: 'x' }, pubKeyCredParams: [] } }
+                    : { unlock: 'unlock-1' };
+
+                return new Response(JSON.stringify({ data }), { status: 201 });
+            }
+
+            return new Response(JSON.stringify({ data: capture }), { status: 200 });
+        }));
+        const create = vi.fn().mockResolvedValue({
+            id: 'AQID',
+            rawId,
+            type: 'public-key',
+            response: { clientDataJSON: bytes, attestationObject: bytes, getTransports: () => ['internal'] },
+        });
+        stubCredentials({ create });
+
+        render(<CapturePage apiBase="/api/v1" token="secret-token" />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Start' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Lock it to this phone' }));
+
+        await screen.findByRole('heading', { name: 'Go to room 1. What is it called?' });
+        const publicKey = create.mock.calls[0][0].publicKey as PublicKeyCredentialCreationOptions;
+        expect(new Uint8Array(publicKey.challenge as ArrayBuffer)).toEqual(new Uint8Array([1, 2, 3]));
+        const [target, init] = posts[1];
+        expect(target).toBe('/api/v1/capture/passkey');
+        expect(JSON.parse(String(init.body)).credential).toMatchObject({ rawId: 'AQID', response: { attestationObject: 'CQ' } });
+        expect(window.sessionStorage.getItem('capture-unlock:secret-token')).toBe('unlock-1');
+    });
+
+    it('asks a locked link for the phone unlock and loads the capture with it', async () => {
+        const loads: RequestInit[] = [];
+        vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+            if (init?.method === 'POST') {
+                const data = url.endsWith('options') ? { options: { challenge: 'AQID', allowCredentials: [{ type: 'public-key', id: 'AQID' }] } } : { unlock: 'unlock-2' };
+
+                return new Response(JSON.stringify({ data }), { status: 200 });
+            }
+
+            loads.push(init ?? {});
+            const unlocked = (init?.headers as Record<string, string>)['X-Capture-Unlock'] === 'unlock-2';
+
+            return new Response(JSON.stringify({ data: { ...capture, passkey_registered: true, locked: !unlocked } }), { status: 200 });
+        }));
+        stubCredentials({
+            get: vi.fn().mockResolvedValue({
+                id: 'AQID',
+                rawId,
+                type: 'public-key',
+                response: { clientDataJSON: bytes, authenticatorData: bytes, signature: bytes, userHandle: null },
+            }),
+        });
+
+        render(<CapturePage apiBase="/api/v1" token="secret-token" />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Unlock with this phone' }));
+
+        await screen.findByRole('button', { name: 'Start' });
+        expect((loads.at(-1)?.headers as Record<string, string>)['X-Capture-Unlock']).toBe('unlock-2');
+    });
+});
+
 describe('compression metadata', () => {
     it('carries the EXIF block across with its orientation reset', () => {
         // SOI, then APP1 "Exif" holding a little-endian TIFF with one orientation entry set to 6.
