@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\PilotEnquiryController;
 use App\Http\Controllers\Api\PropertyAssignmentController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\PublicCaptureController;
+use App\Http\Controllers\Api\PublicCaptureNoteController;
 use App\Http\Controllers\Api\PublicSigningController;
 use App\Http\Controllers\Api\RoomReorganiseController;
 use App\Http\Controllers\Api\SiteController;
@@ -41,6 +42,7 @@ Route::middleware('throttle:30,1')->group(function (): void {
 Route::middleware('throttle:120,1,capture')->group(function (): void {
     Route::get('capture', [PublicCaptureController::class, 'show']);
     Route::post('capture/photos', [PublicCaptureController::class, 'store']);
+    Route::post('capture/notes', [PublicCaptureNoteController::class, 'store']);
     Route::get('capture/photos/{photo}', [PublicCaptureController::class, 'photo'])->whereNumber('photo');
 });
 

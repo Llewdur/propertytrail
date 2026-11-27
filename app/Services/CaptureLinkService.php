@@ -8,11 +8,11 @@ use App\Models\AuditLog;
 use App\Models\CaptureLink;
 use App\Models\EvidenceLink;
 use App\Models\Lease;
+use App\Repositories\CaptureNoteRepository;
+use App\Support\CaptureTime;
 use App\Support\Tenancy\CurrentOrganisation;
-use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -26,6 +26,7 @@ final class CaptureLinkService
         private readonly CurrentOrganisation $currentOrganisation,
         private readonly EvidenceIngestionService $ingestion,
         private readonly CaptureRoomService $rooms,
+        private readonly CaptureNoteRepository $notes,
     ) {}
 
     /**
@@ -140,17 +141,25 @@ final class CaptureLinkService
                 ->whereHas('evidenceRecord', static fn(Builder $record) => $record->where('sha256_hash', $hash))
                 ->first();
 
+            $issue = $this->notes->findIssue($link, (string) ($data['issue_key'] ?? ''));
+
             if ($held instanceof EvidenceLink) {
+                if ($issue !== null && $held->capture_issue_id === null) {
+                    $held->forceFill(['capture_issue_id' => $issue->id])->save();
+                }
+
                 return $held;
             }
 
             $corner = ($data['corner'] ?? null) !== null ? (int) $data['corner'] : null;
             $shot = ($data['shot'] ?? null) !== null ? (string) $data['shot'] : null;
 
-            $record = $this->ingestion->ingest($file, Lease::class, $link->lease_id, $this->shotLabel($shot, $corner), [
+            $label = $issue === null ? $this->shotLabel($shot, $corner) : 'Close-up: ' . ucfirst($issue->kind);
+
+            $record = $this->ingestion->ingest($file, Lease::class, $link->lease_id, $label, [
                 'phase' => $link->phase,
                 'area_room_id' => $areaId,
-                'taken_at' => $this->takenAt($data['taken_at'] ?? null),
+                'taken_at' => CaptureTime::from($data['taken_at'] ?? null),
             ]);
 
             /** @var EvidenceLink $photo */
@@ -159,6 +168,7 @@ final class CaptureLinkService
                 'capture_link_id' => $link->id,
                 'capture_corner' => $corner,
                 'capture_shot' => $shot,
+                'capture_issue_id' => $issue?->id,
             ])->save();
 
             return $photo;
@@ -175,18 +185,6 @@ final class CaptureLinkService
             $shot === 'nearest' => "Corner {$corner} (nearest spot)",
             default => "Corner {$corner}",
         };
-    }
-
-    /** The phone's capture time, so photos queued offline keep their order. A clock running ahead is ignored. */
-    private function takenAt(mixed $value): CarbonInterface
-    {
-        if (!is_string($value) || $value === '') {
-            return now();
-        }
-
-        $takenAt = Carbon::parse($value)->setTimezone((string) config('app.timezone'));
-
-        return $takenAt->isFuture() ? now() : $takenAt;
     }
 
     /** @param array<string, mixed> $values */

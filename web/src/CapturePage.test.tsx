@@ -108,6 +108,27 @@ describe('guided capture', () => {
         });
 
         click('Yes, this room is done');
+        click('Fair');
+        await screen.findByRole('heading', { name: 'Is anything broken, damaged or missing?' });
+        click('Yes');
+        click('Broken');
+        fireEvent.change(screen.getByLabelText('Describe the problem'), { target: { value: 'Gate latch' } });
+        click('Next');
+        await screen.findByRole('heading', { name: 'Take a close-up.' });
+        expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
+        click('Take photo');
+        fireEvent.change(screen.getByLabelText('Open phone camera'), {
+            target: { files: [new File(['latch'], 'b.jpg', { type: 'image/jpeg' })] },
+        });
+        await screen.findByRole('heading', { name: 'Another one in Garden?' });
+        click('No, that is all');
+        await waitFor(() => expect(uploads).toHaveLength(4));
+        const [, rating, reported, closeUp] = uploads;
+        expect(rating.get('condition')).toBe('fair');
+        expect(reported.get('issue_note')).toBe('Gate latch');
+        expect([closeUp.get('shot'), closeUp.get('issue_key')]).toEqual(['closeup', reported.get('issue_key')]);
+
+        await screen.findByRole('heading', { name: 'Please go to the very next room.' });
         expect(screen.getByRole('heading', { name: 'Please go to the very next room.' })).toBeTruthy();
 
         // A reload comes back to the same step.

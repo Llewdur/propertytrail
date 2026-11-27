@@ -28,7 +28,8 @@ final class CapturePhotoRequest extends FormRequest
             'adjoins_area_room_id' => ['sometimes', 'nullable', 'integer'],
             'adjoins_room_key' => $roomKey,
             'corner' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:99'],
-            'shot' => ['sometimes', 'nullable', 'string', 'in:corner,nearest,extra'],
+            'shot' => ['sometimes', 'nullable', 'string', 'in:corner,nearest,extra,closeup'],
+            'issue_key' => $roomKey,
             'taken_at' => ['sometimes', 'nullable', 'date'],
         ];
     }

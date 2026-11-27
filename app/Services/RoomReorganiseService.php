@@ -8,6 +8,8 @@ use App\Factories\AreaRoomWriteFactory;
 use App\Factories\LeaseWriteFactory;
 use App\Models\AreaRoom;
 use App\Models\AuditLog;
+use App\Models\CaptureIssue;
+use App\Models\CaptureRoomRating;
 use App\Models\EvidenceLink;
 use App\Models\InspectionSection;
 use App\Models\Lease;
@@ -47,6 +49,8 @@ final class RoomReorganiseService
             foreach ($this->leasesListing($source) as $lease) {
                 $this->leases->addCoveredArea($lease, $target->id);
             }
+
+            $this->mergeNotes($source, $target);
 
             AreaRoom::query()
                 ->where('adjoins_area_room_id', $source->id)
@@ -93,6 +97,7 @@ final class RoomReorganiseService
             ]);
 
             $photos->each(static fn(EvidenceLink $photo) => $photo->update(['area_room_id' => $created->id]));
+            $this->followCloseUps($source, $created);
 
             foreach ($this->leasesListing($source) as $lease) {
                 $this->leases->addCoveredArea($lease, $created->id);
@@ -108,6 +113,41 @@ final class RoomReorganiseService
         });
 
         return $room;
+    }
+
+    /** Where both rooms were rated for one capture, the rating of the room kept stands. */
+    private function mergeNotes(AreaRoom $source, AreaRoom $target): void
+    {
+        CaptureIssue::query()
+            ->where('area_room_id', $source->id)
+            ->get()
+            ->each(static fn(CaptureIssue $issue) => $issue->update(['area_room_id' => $target->id]));
+
+        foreach (CaptureRoomRating::query()->where('area_room_id', $source->id)->get() as $rating) {
+            $isRated = CaptureRoomRating::query()
+                ->where('area_room_id', $target->id)
+                ->where('lease_id', $rating->lease_id)
+                ->where('phase', $rating->phase)
+                ->exists();
+
+            if ($isRated) {
+                $rating->delete();
+                continue;
+            }
+
+            $rating->update(['area_room_id' => $target->id]);
+        }
+    }
+
+    /** An issue moves with a split only when all its close-ups did. */
+    private function followCloseUps(AreaRoom $source, AreaRoom $created): void
+    {
+        CaptureIssue::query()
+            ->where('area_room_id', $source->id)
+            ->whereHas('photos', static fn($photos) => $photos->where('area_room_id', $created->id))
+            ->whereDoesntHave('photos', static fn($photos) => $photos->where('area_room_id', $source->id))
+            ->get()
+            ->each(static fn(CaptureIssue $issue) => $issue->update(['area_room_id' => $created->id]));
     }
 
     /** @return Collection<int, Lease> */

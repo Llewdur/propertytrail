@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property string|null $phase
  * @property int|null $area_room_id
  * @property int|null $replaces_link_id
+ * @property int|null $capture_issue_id
  * @property \Illuminate\Support\Carbon|null $taken_at
  * @property-read EvidenceRecord $evidenceRecord
  * @property-read AreaRoom|null $areaRoom
@@ -46,6 +47,7 @@ final class EvidenceLink extends Model
         'capture_link_id',
         'capture_corner',
         'capture_shot',
+        'capture_issue_id',
     ];
 
     /** @return array<string, string> */
