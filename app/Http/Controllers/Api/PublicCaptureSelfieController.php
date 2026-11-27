@@ -26,7 +26,7 @@ final class PublicCaptureSelfieController extends Controller
 
     public function store(CaptureSelfieRequest $request): JsonResponse
     {
-        $link = $this->link($request, $this->links);
+        $link = $this->unlockedLink($request, $this->links);
 
         if (!$link instanceof CaptureLink) {
             return $link;

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 type Status = { phase: string; expires_at: string; last_used_at: string | null; photo_count?: number; url?: string; queued?: string[] };
 type Selfie = { id: number; phase: string; taken_at: string };
+type Passkey = { phase: string; registered_at: string | null; last_used_at: string | null };
 
 type Props = {
     url: string;
@@ -22,7 +23,9 @@ export default function LeaseCaptureLink({ url, leaseReference, headers }: Props
     const [message, setMessage] = useState<string | null>(null);
     const [selfies, setSelfies] = useState<Selfie[]>([]);
     const [shown, setShown] = useState<Record<number, string>>({});
+    const [passkeys, setPasskeys] = useState<Passkey[]>([]);
     const selfiesUrl = url.replace(/capture-link$/, 'capture-selfies');
+    const passkeysUrl = url.replace(/capture-link$/, 'capture-passkeys');
 
     const objectUrls = useRef<string[]>([]);
 
@@ -62,6 +65,7 @@ export default function LeaseCaptureLink({ url, leaseReference, headers }: Props
             setLink(data);
             setOpen(true);
             setSelfies(((await request(selfiesUrl, { headers: headers() })) as Selfie[] | undefined) ?? []);
+            setPasskeys(((await request(passkeysUrl, { headers: headers() })) as Passkey[] | undefined) ?? []);
         }
     }
 
@@ -83,6 +87,21 @@ export default function LeaseCaptureLink({ url, leaseReference, headers }: Props
         if ((await request(url, { method: 'DELETE', headers: headers() })) !== undefined) {
             setLink(null);
             setMessage('Link withdrawn.');
+        }
+    }
+
+    /** For a tenant who lost the phone: the link alone works again until they set up a new one. */
+    async function resetPasskey(passkeyPhase: string): Promise<void> {
+        setMessage(null);
+        const data = await request(passkeysUrl, {
+            method: 'DELETE',
+            headers: { ...headers(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phase: passkeyPhase }),
+        });
+
+        if (data !== undefined) {
+            setPasskeys((current) => current.filter((passkey) => passkey.phase !== passkeyPhase));
+            setMessage('Phone unlock reset. The link works on its own again.');
         }
     }
 
@@ -175,6 +194,14 @@ export default function LeaseCaptureLink({ url, leaseReference, headers }: Props
                     ))}
                 </div>
             )}
+            {passkeys.map((passkey) => (
+                <p key={passkey.phase}>
+                    The tenant locked the {passkey.phase} link to their phone&apos;s unlock.{' '}
+                    <button type="button" className="underline" onClick={() => void resetPasskey(passkey.phase)}>
+                        Reset {passkey.phase} phone unlock
+                    </button>
+                </p>
+            ))}
             {message !== null && <p role="status">{message}</p>}
         </fieldset>
     );
