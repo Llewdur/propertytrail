@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Support\Legal;
+use App\Support\PulseBrowser;
 use Illuminate\Http\Response;
 use Illuminate\Support\Str;
 use Throwable;
@@ -36,6 +37,7 @@ final class TermsController extends Controller
             . 'main{max-width:48rem;margin:0 auto;padding:3rem 1.25rem}'
             . 'h1{font-size:1.8rem}h2{font-size:1.2rem;margin-top:2rem}'
             . 'a{color:#0f172a}p,li{margin:.6rem 0}</style>'
+            . PulseBrowser::tags()
             . '</head><body><main>'
             . $body
             . '<p><a href="/">Back to '
@@ -48,7 +50,9 @@ final class TermsController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',
             'Referrer-Policy' => 'no-referrer',
-            'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+            'Content-Security-Policy' => PulseBrowser::contentSecurityPolicy(
+                "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+            ),
         ]);
     }
 }

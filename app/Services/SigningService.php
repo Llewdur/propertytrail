@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Contracts\Adapters\PulseAdapterInterface;
 use App\Models\AuditLog;
 use App\Models\Inspection;
 use App\Models\InspectionSignature;
@@ -32,6 +33,7 @@ final class SigningService
         private readonly CurrentOrganisation $currentOrganisation,
         private readonly ReportService $reports,
         private readonly EntitlementService $billing,
+        private readonly PulseAdapterInterface $pulse,
     ) {}
 
     /**
@@ -249,6 +251,13 @@ final class SigningService
                 'signed_via' => $via,
                 'signed_at' => $signature->signed_at->toIso8601String(),
             ],
+        ]);
+
+        // Sent only once the transaction has committed.
+        $this->pulse->track('inspection_signed', [
+            'inspection_id' => $inspection->id,
+            'party' => $party,
+            'signed_via' => $via,
         ]);
 
         return $signature;

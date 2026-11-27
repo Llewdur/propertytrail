@@ -29,17 +29,32 @@ use App\Repositories\LeaseRepository;
 use App\Repositories\OrganisationRepository;
 use App\Repositories\PropertyRepository;
 use App\Repositories\UserRepository;
+use App\Services\AuthEventSubscriber;
 use App\Services\InspectionTemplateService;
+use App\Support\PulseRequestView;
 use App\Support\Tenancy\CurrentOrganisation;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Socialite\Facades\Socialite;
+use Zekini\PulseSdk\PulseClient;
 
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
         $this->app->singleton(CurrentOrganisation::class);
+
+        // Package providers register first, so this replaces the SDK's own binding.
+        $this->app->singleton(
+            PulseClient::class,
+            static fn(Application $app): PulseClient => new PulseClient(
+                $app->make(HttpFactory::class),
+                new PulseRequestView(),
+            ),
+        );
 
         $this->app->bind(StorageAdapterInterface::class, R2StorageAdapter::class);
         $this->app->bind(AccountingAdapterInterface::class, FleetAccountingAdapter::class);
@@ -72,6 +87,8 @@ class AppServiceProvider extends ServiceProvider
     {
         // Read from config, not env(): .env is not loaded once the config is cached.
         EncryptCookies::except([(string) config('auth-package.trusted_devices.cookie')]);
+
+        Event::subscribe(AuthEventSubscriber::class);
 
         Socialite::extend('google', static function (): \Laravel\Socialite\Contracts\Provider {
             $config = config('services.google', []);

@@ -13,6 +13,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
@@ -23,9 +24,12 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api/v1',
         commands: __DIR__ . '/../routes/console.php',
         health: '/up',
+        then: static fn() => Route::prefix('api/v1')->group(__DIR__ . '/../routes/webhooks.php'),
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->api(prepend: [
+            // First, so a refused call is recorded too.
+            'audit-api-call',
             EnsureFrontendRequestsAreStateful::class,
             StartSession::class,
             ResolveCurrentOrganisation::class,

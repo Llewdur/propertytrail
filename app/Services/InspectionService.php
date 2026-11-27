@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Contracts\Adapters\PulseAdapterInterface;
 use App\Models\Inspection;
 use App\Models\InspectionItem;
 use App\Models\InspectionSection;
@@ -13,6 +14,10 @@ use InvalidArgumentException;
 
 final class InspectionService
 {
+    public function __construct(
+        private readonly PulseAdapterInterface $pulse,
+    ) {}
+
     /**
      * @param array<int, array<string, mixed>> $rows items payload, see SaveInspectionSectionRequest
      */
@@ -44,7 +49,7 @@ final class InspectionService
      */
     public function submit(Inspection $inspection, int $userId): array
     {
-        return DB::transaction(static function () use ($inspection, $userId): array {
+        $errors = DB::transaction(static function () use ($inspection, $userId): array {
             $locked = Inspection::query()->lockForUpdate()->find($inspection->id);
 
             if ($locked === null || !$locked->isDraft()) {
@@ -65,6 +70,12 @@ final class InspectionService
 
             return [];
         });
+
+        if ($errors === []) {
+            $this->pulse->track('inspection_submitted', ['inspection_id' => $inspection->id]);
+        }
+
+        return $errors;
     }
 
     /**

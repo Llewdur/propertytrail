@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Support\PulseBrowser;
 use App\Support\Tenancy\CurrentOrganisation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -46,7 +47,7 @@ final class SpaController extends Controller
 
         $script =
             '<script>window.__PROPERTYTRAIL_BOOTSTRAP__=' . json_encode($bootstrap, JSON_THROW_ON_ERROR) . ';</script>';
-        $html = str_replace('</head>', $script . '</head>', $html);
+        $html = str_replace('</head>', $script . PulseBrowser::tags() . '</head>', $html);
 
         return response($html, Response::HTTP_OK, [
             'Content-Type' => 'text/html; charset=utf-8',
@@ -55,7 +56,9 @@ final class SpaController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',
             'Referrer-Policy' => 'same-origin',
-            'Content-Security-Policy' => "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'",
+            'Content-Security-Policy' => PulseBrowser::contentSecurityPolicy(
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'",
+            ),
         ]);
     }
 }

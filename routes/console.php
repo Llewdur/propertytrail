@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuthEvent;
 use App\Services\Billing\EntitlementService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -13,3 +14,5 @@ Schedule::call(fn() => app(EntitlementService::class)->flushOutbox())
     ->name('fleet-accounting-flush-billing-outbox')
     ->everyFiveMinutes()
     ->withoutOverlapping();
+
+Schedule::command('model:prune', ['--model' => [AuthEvent::class]])->daily();
