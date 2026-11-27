@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\LeaseAreaController;
 use App\Http\Controllers\Api\LeaseCaptureLinkController;
 use App\Http\Controllers\Api\LeaseCapturePasskeyController;
 use App\Http\Controllers\Api\LeaseCaptureSelfieController;
+use App\Http\Controllers\Api\LeaseCaptureSignOffController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
 use App\Http\Controllers\Api\OrganisationController;
@@ -27,6 +28,7 @@ use App\Http\Controllers\Api\PublicCaptureController;
 use App\Http\Controllers\Api\PublicCaptureNoteController;
 use App\Http\Controllers\Api\PublicCapturePasskeyController;
 use App\Http\Controllers\Api\PublicCaptureSelfieController;
+use App\Http\Controllers\Api\PublicCaptureSignOffController;
 use App\Http\Controllers\Api\PublicSigningController;
 use App\Http\Controllers\Api\RoomReorganiseController;
 use App\Http\Controllers\Api\SiteController;
@@ -52,6 +54,9 @@ Route::middleware('throttle:120,1,capture')->group(function (): void {
     Route::post('capture/unlock/options', [PublicCapturePasskeyController::class, 'verificationOptions']);
     Route::post('capture/unlock', [PublicCapturePasskeyController::class, 'verify']);
     Route::get('capture/photos/{photo}', [PublicCaptureController::class, 'photo'])->whereNumber('photo');
+    Route::get('capture/sign-off', [PublicCaptureSignOffController::class, 'show']);
+    Route::post('capture/sign-off', [PublicCaptureSignOffController::class, 'store']);
+    Route::get('capture/sign-off/copy', [PublicCaptureSignOffController::class, 'copy']);
 });
 
 Route::middleware('throttle:6,1')->group(function (): void {
@@ -173,6 +178,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
             LeaseCaptureSelfieController::class,
             'show',
         ])->whereNumber(['lease', 'selfie']);
+        Route::get('leases/{lease}/capture-sign-offs', [LeaseCaptureSignOffController::class, 'index'])->whereNumber(
+            'lease',
+        );
+        Route::get('leases/{lease}/capture-sign-offs/{signOff}/copy', [
+            LeaseCaptureSignOffController::class,
+            'copy',
+        ])->whereNumber(['lease', 'signOff']);
         Route::get('leases/{lease}/capture-passkeys', [LeaseCapturePasskeyController::class, 'index'])->whereNumber(
             'lease',
         );

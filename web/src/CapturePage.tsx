@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import CameraScreen from './CameraScreen';
+import CaptureSignOff from './CaptureSignOff';
 import { loadFlow, NEW_FLOW, newRoomKey, resumeStep, saveFlow, type Flow, type IssueKind, type RoomRef, type Shot } from './captureFlow';
 import { passkeysSupported, registerPasskey, unlockWithPasskey } from './capturePasskey';
 import { compressImage } from './compressImage';
@@ -110,6 +111,7 @@ export default function CapturePage({ apiBase, token }: Props) {
     const [saving, setSaving] = useState(false);
     const [note, setNote] = useState('');
     const [selfieCamera, setSelfieCamera] = useState(false);
+    const [signing, setSigning] = useState(false);
     // This visit's phone unlock, kept only for this tab.
     const unlockKey = `capture-unlock:${token}`;
     const [unlock, setUnlock] = useState<string | null>(() => stored(() => window.sessionStorage, unlockKey));
@@ -708,11 +710,31 @@ export default function CapturePage({ apiBase, token }: Props) {
     }
 
     if (flow.step === 'done' || room === null) {
+        if (signing) {
+            return (
+                <CaptureSignOff
+                    apiBase={apiBase}
+                    token={token}
+                    unlock={unlock}
+                    passkeyRegistered={capture.passkey_registered}
+                    onUnlock={remember}
+                    onFix={() => {
+                        setSigning(false);
+                        go({ step: 'anything-else' });
+                    }}
+                    onBack={() => setSigning(false)}
+                />
+            );
+        }
+
         return (
             <Screen
                 notice={status}
                 actions={
                     <>
+                        <button type="button" className={PRIMARY} disabled={waiting > 0} onClick={() => setSigning(true)}>
+                            Review and sign
+                        </button>
                         <button type="button" className={SECONDARY} onClick={() => go({ step: 'name' })}>Add another room</button>
                         <button type="button" className={SECONDARY} onClick={() => go({ step: 'issue-room' })}>Report a problem</button>
                     </>
