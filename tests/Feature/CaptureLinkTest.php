@@ -113,7 +113,7 @@ it('shows only the lease scope to a tenant with no account', function (): void {
     $data = ($this->tenant)($token)->getJson('/api/v1/capture')->assertOk()->json('data');
 
     expect(array_keys($data))
-        ->toBe(['capture_key', 'property_name', 'tenant_name', 'phase', 'expires_at', 'areas'])
+        ->toBe(['capture_key', 'property_name', 'tenant_name', 'phase', 'expires_at', 'selfie_taken', 'areas'])
         ->and($data['areas'])
         ->toBe([['id' => $this->room['id'], 'name' => 'Kitchen', 'photos' => []]]);
 

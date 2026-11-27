@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 
-type Props = { instruction: string; onPhoto: (file: File) => void; onCancel: () => void };
+type Props = {
+    instruction: string;
+    onPhoto: (file: File) => void;
+    onCancel: () => void;
+    /** The front camera for a selfie, the back one for the rooms. */
+    facing?: 'user' | 'environment';
+};
 
 const PRIMARY = 'block w-full rounded-lg bg-slate-900 px-4 py-4 text-center text-lg font-semibold text-white';
 
 /** The in-app camera, with the phone's own camera when the browser will not give us a live one. */
-export default function CameraScreen({ instruction, onPhoto, onCancel }: Props) {
+export default function CameraScreen({ instruction, onPhoto, onCancel, facing = 'environment' }: Props) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const [live, setLive] = useState(() => navigator.mediaDevices?.getUserMedia !== undefined);
 
@@ -19,7 +25,7 @@ export default function CameraScreen({ instruction, onPhoto, onCancel }: Props) 
 
         navigator.mediaDevices
             .getUserMedia({
-                video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } },
+                video: { facingMode: { ideal: facing }, width: { ideal: 2560 }, height: { ideal: 1920 } },
                 audio: false,
             })
             .then((granted) => {
@@ -41,7 +47,7 @@ export default function CameraScreen({ instruction, onPhoto, onCancel }: Props) 
             closed = true;
             stream?.getTracks().forEach((track) => track.stop());
         };
-    }, [live]);
+    }, [live, facing]);
 
     function snap(): void {
         const video = videoRef.current;
@@ -79,7 +85,7 @@ export default function CameraScreen({ instruction, onPhoto, onCancel }: Props) 
                     <input
                         type="file"
                         accept="image/*"
-                        capture="environment"
+                        capture={facing}
                         className="sr-only"
                         aria-label="Open phone camera"
                         onChange={(event) => {

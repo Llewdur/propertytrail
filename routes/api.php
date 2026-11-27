@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\InspectionTemplateController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\LeaseAreaController;
 use App\Http\Controllers\Api\LeaseCaptureLinkController;
+use App\Http\Controllers\Api\LeaseCaptureSelfieController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
 use App\Http\Controllers\Api\OrganisationController;
@@ -23,6 +24,7 @@ use App\Http\Controllers\Api\PropertyAssignmentController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\PublicCaptureController;
 use App\Http\Controllers\Api\PublicCaptureNoteController;
+use App\Http\Controllers\Api\PublicCaptureSelfieController;
 use App\Http\Controllers\Api\PublicSigningController;
 use App\Http\Controllers\Api\RoomReorganiseController;
 use App\Http\Controllers\Api\SiteController;
@@ -43,6 +45,7 @@ Route::middleware('throttle:120,1,capture')->group(function (): void {
     Route::get('capture', [PublicCaptureController::class, 'show']);
     Route::post('capture/photos', [PublicCaptureController::class, 'store']);
     Route::post('capture/notes', [PublicCaptureNoteController::class, 'store']);
+    Route::post('capture/selfie', [PublicCaptureSelfieController::class, 'store']);
     Route::get('capture/photos/{photo}', [PublicCaptureController::class, 'photo'])->whereNumber('photo');
 });
 
@@ -158,6 +161,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('leases/{lease}/capture-link/send', [LeaseCaptureLinkController::class, 'send'])
             ->whereNumber('lease')
             ->middleware('throttle:6,1');
+        Route::get('leases/{lease}/capture-selfies', [LeaseCaptureSelfieController::class, 'index'])->whereNumber(
+            'lease',
+        );
+        Route::get('leases/{lease}/capture-selfies/{selfie}', [
+            LeaseCaptureSelfieController::class,
+            'show',
+        ])->whereNumber(['lease', 'selfie']);
     });
 
     Route::middleware('property.access:update')->group(function (): void {

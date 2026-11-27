@@ -14,6 +14,7 @@ use App\Models\Lease;
 use App\Models\Property;
 use App\Repositories\AreaRoomRepository;
 use App\Services\CaptureLinkService;
+use App\Services\CaptureSelfieService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -31,6 +32,7 @@ final class PublicCaptureController extends Controller
         private readonly CaptureLinkService $links,
         private readonly AreaRoomRepository $areas,
         private readonly StorageAdapterInterface $storage,
+        private readonly CaptureSelfieService $selfies,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -64,6 +66,7 @@ final class PublicCaptureController extends Controller
                 'tenant_name' => $lease->tenant_name,
                 'phase' => $link->phase,
                 'expires_at' => $link->expires_at->toIso8601String(),
+                'selfie_taken' => $this->selfies->taken($link),
                 'areas' => $areas,
             ],
         ]);
