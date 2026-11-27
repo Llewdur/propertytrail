@@ -1,5 +1,6 @@
 import { Button, Card } from '@zekini/ui';
 import { useCallback, useEffect, useState } from 'react';
+import LeaseCaptureLink from './LeaseCaptureLink';
 import LeaseCoverage from './LeaseCoverage';
 import SitesSection, { type Site } from './SitesSection';
 
@@ -442,6 +443,11 @@ export default function SetupPanel({ apiBase, organisationId, csrfToken = '', re
                                 <span className="text-slate-500">Org #{lease.organisation_id}</span>
                                 <LeaseCoverage
                                     url={`${apiBase}/leases/${lease.id}/areas`}
+                                    leaseReference={lease.lease_reference}
+                                    headers={headers}
+                                />
+                                <LeaseCaptureLink
+                                    url={`${apiBase}/leases/${lease.id}/capture-link`}
                                     leaseReference={lease.lease_reference}
                                     headers={headers}
                                 />

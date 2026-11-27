@@ -205,6 +205,24 @@ message = 'Argument #2 of method `App\Services\ReportBrandingService::storeLogo`
 count = 1
 
 [[issues]]
+file = "app/Http/Controllers/Api/PublicCaptureController.php"
+code = "array-to-string-conversion"
+message = "Potentially casting `array` to `string`."
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/PublicCaptureController.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `Illuminate\Support\Collection::get`: expected `Stringable|UnitEnum|array-key|null`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Http/Controllers/Api/PublicCaptureController.php"
+code = "non-documented-property"
+message = 'Ambiguous property access: $name on class `App\Models\Property`.'
+count = 1
+
+[[issues]]
 file = "app/Http/Controllers/Api/PublicSigningController.php"
 code = "mixed-property-access"
 message = "Attempting to access a property on a non-object type (`mixed`)."
@@ -227,6 +245,48 @@ file = "app/Http/Middleware/ResolveCurrentOrganisation.php"
 code = "mixed-assignment"
 message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
 count = 1
+
+[[issues]]
+file = "app/Jobs/SendCaptureLinkJob.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Jobs\SendCaptureLinkJob::audit`: expected `App\Models\CaptureLink`, but found `nonnull`.'
+count = 2
+
+[[issues]]
+file = "app/Jobs/SendCaptureLinkJob.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 2
+
+[[issues]]
+file = "app/Jobs/SendCaptureLinkJob.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 2
+
+[[issues]]
+file = "app/Jobs/SendCaptureLinkJob.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`nonnull`)."
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendCaptureLinkJob.php"
+code = "mixed-operand"
+message = "Invalid middle operand: type `mixed` cannot be reliably used in string concatenation."
+count = 2
+
+[[issues]]
+file = "app/Jobs/SendCaptureLinkJob.php"
+code = "mixed-property-access"
+message = "Attempting to access a property on a non-object type (`nonnull`)."
+count = 1
+
+[[issues]]
+file = "app/Jobs/SendCaptureLinkJob.php"
+code = "non-documented-method"
+message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
+count = 2
 
 [[issues]]
 file = "app/Jobs/SendDeliveryJob.php"
@@ -586,6 +646,84 @@ count = 2
 file = "app/Services/Billing/EntitlementService.php"
 code = "non-documented-method"
 message = 'Ambiguous method call to `getmodels` on class `Illuminate\Database\Query\Builder`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "invalid-return-statement"
+message = 'Invalid return type for function `App\Services\CaptureLinkService::current`: expected `App\Models\CaptureLink|null`, but found `null|stdClass`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "invalid-return-statement"
+message = 'Invalid return type for function `App\Services\CaptureLinkService::photos`: expected `Illuminate\Database\Eloquent\Builder<App\Models\EvidenceLink>`, but found `$this(Illuminate\Database\Query\Builder)`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `App\Support\Tenancy\CurrentOrganisation::set`: expected `int`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `Illuminate\Database\Query\Builder::find`: expected `int|string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 3
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`nonnull`)."
+count = 2
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-operand"
+message = "Right operand in `&&` operation has `mixed` type."
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-property-access"
+message = "Attempting to access a property on a non-object type (`nonnull`)."
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Services\CaptureLinkService::addPhoto`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Services\CaptureLinkService::issue`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Services\CaptureLinkService::resolve`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureLinkService.php"
+code = "non-documented-method"
+message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
 count = 1
 
 [[issues]]
