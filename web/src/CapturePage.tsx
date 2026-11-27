@@ -11,6 +11,7 @@ type Capture = {
     tenant_name: string;
     phase: string;
     expires_at: string;
+    selfie_taken: boolean;
     areas: Area[];
 };
 
@@ -92,6 +93,7 @@ export default function CapturePage({ apiBase, token }: Props) {
     const [taken, setTaken] = useState<{ id: string; url: string } | null>(null);
     const [saving, setSaving] = useState(false);
     const [note, setNote] = useState('');
+    const [selfieCamera, setSelfieCamera] = useState(false);
     const syncing = useRef(false);
 
     const load = useCallback(async (): Promise<void> => {
@@ -280,6 +282,42 @@ export default function CapturePage({ apiBase, token }: Props) {
         }
     }
 
+    /** Sent straight up rather than queued: the page only loads online, and the rooms wait for it. */
+    async function sendSelfie(raw: File): Promise<void> {
+        if (saving) {
+            return;
+        }
+
+        setSaving(true);
+        setSelfieCamera(false);
+
+        try {
+            const file = await compressImage(raw);
+            const body = new FormData();
+            body.append('file', file, file.name);
+            body.append('taken_at', new Date().toISOString());
+            const response = await fetch(`${apiBase}/capture/selfie`, {
+                method: 'POST',
+                credentials: 'omit',
+                headers: { Accept: 'application/json', 'X-Capture-Token': token },
+                body,
+            });
+            const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+
+            if (!response.ok) {
+                setError(payload?.message ?? 'Your selfie did not upload. Try again.');
+                return;
+            }
+
+            setError(null);
+            setCapture((current) => (current === null ? current : { ...current, selfie_taken: true }));
+        } catch {
+            setError('Your selfie did not upload. Check your connection and try again.');
+        } finally {
+            setSaving(false);
+        }
+    }
+
     const shoot = (shot: Shot): void => go({ step: 'camera', shot });
 
     function chooseRoom(chosenName: string, isOutdoor: boolean): void {
@@ -396,6 +434,39 @@ export default function CapturePage({ apiBase, token }: Props) {
                     Every room, inside and outside. Stop at any time and continue with this link until{' '}
                     {new Date(capture.expires_at).toLocaleDateString()}.
                 </p>
+                {!capture.selfie_taken && (
+                    <p className="text-sm text-slate-500">
+                        First, a quick selfie to show who took the photos. Only the property&apos;s staff can see it.
+                    </p>
+                )}
+            </Screen>
+        );
+    }
+
+    if (!capture.selfie_taken) {
+        if (selfieCamera) {
+            return (
+                <CameraScreen
+                    facing="user"
+                    instruction="Hold the phone at arm's length and look at the screen."
+                    onPhoto={(file) => void sendSelfie(file)}
+                    onCancel={() => setSelfieCamera(false)}
+                />
+            );
+        }
+
+        return (
+            <Screen
+                onStop={stop}
+                notice={status}
+                actions={
+                    <button type="button" className={PRIMARY} disabled={saving} onClick={() => setSelfieCamera(true)}>
+                        {saving ? 'Uploading…' : 'Take selfie'}
+                    </button>
+                }
+            >
+                <Request>Take a selfie</Request>
+                <p>It shows who took these photos. Only the property&apos;s staff can see it.</p>
             </Screen>
         );
     }

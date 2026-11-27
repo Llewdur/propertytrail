@@ -1,7 +1,8 @@
 import { Button } from '@zekini/ui';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Status = { phase: string; expires_at: string; last_used_at: string | null; photo_count?: number; url?: string; queued?: string[] };
+type Selfie = { id: number; phase: string; taken_at: string };
 
 type Props = {
     url: string;
@@ -19,6 +20,27 @@ export default function LeaseCaptureLink({ url, leaseReference, headers }: Props
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [message, setMessage] = useState<string | null>(null);
+    const [selfies, setSelfies] = useState<Selfie[]>([]);
+    const [shown, setShown] = useState<Record<number, string>>({});
+    const selfiesUrl = url.replace(/capture-link$/, 'capture-selfies');
+
+    const objectUrls = useRef<string[]>([]);
+
+    useEffect(() => () => objectUrls.current.forEach((objectUrl) => URL.revokeObjectURL(objectUrl)), []);
+
+    /** Fetched only when asked for, because every view is audited. */
+    async function viewSelfie(id: number): Promise<void> {
+        const response = await fetch(`${selfiesUrl}/${id}`, { credentials: 'same-origin', headers: headers() });
+
+        if (!response.ok) {
+            setMessage('The selfie could not be loaded.');
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(await response.blob());
+        objectUrls.current.push(objectUrl);
+        setShown((current) => ({ ...current, [id]: objectUrl }));
+    }
 
     async function request(target: string, init: RequestInit): Promise<unknown> {
         const response = await fetch(target, { credentials: 'same-origin', ...init });
@@ -39,6 +61,7 @@ export default function LeaseCaptureLink({ url, leaseReference, headers }: Props
         if (data !== undefined) {
             setLink(data);
             setOpen(true);
+            setSelfies(((await request(selfiesUrl, { headers: headers() })) as Selfie[] | undefined) ?? []);
         }
     }
 
@@ -136,6 +159,22 @@ export default function LeaseCaptureLink({ url, leaseReference, headers }: Props
                 <Button variant="secondary" onClick={send}>Create and send</Button>
                 {link !== null && <Button variant="secondary" onClick={() => void withdraw()}>Withdraw</Button>}
             </div>
+            {selfies.length > 0 && (
+                <div className="space-y-1">
+                    <p>Tenant selfies (who appeared to be holding the phone; not an identity check)</p>
+                    {selfies.map((selfie) => (
+                        <div key={selfie.id}>
+                            {shown[selfie.id] === undefined ? (
+                                <button type="button" className="underline" onClick={() => void viewSelfie(selfie.id)}>
+                                    View {selfie.phase} selfie, {new Date(selfie.taken_at).toLocaleString()}
+                                </button>
+                            ) : (
+                                <img src={shown[selfie.id]} alt={`Tenant ${selfie.phase} selfie`} className="max-h-48 rounded" />
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
             {message !== null && <p role="status">{message}</p>}
         </fieldset>
     );

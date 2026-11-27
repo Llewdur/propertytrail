@@ -71,8 +71,34 @@ describe('guided capture', () => {
         tenant_name: 'T. Tenant',
         phase: 'incoming',
         expires_at: '2027-01-01T00:00:00Z',
+        selfie_taken: true,
         areas: [],
     };
+
+    it('asks for a front-camera selfie before the first room and sends it with the token in a header', async () => {
+        const posts: [string, RequestInit][] = [];
+        vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+            if (init?.method === 'POST') {
+                posts.push([url, init]);
+                return new Response('{}', { status: 201 });
+            }
+
+            return new Response(JSON.stringify({ data: { ...capture, selfie_taken: false } }), { status: 200 });
+        }));
+
+        render(<CapturePage apiBase="/api/v1" token="secret-token" />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Start' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Take selfie' }));
+        const input = screen.getByLabelText('Open phone camera');
+        expect(input.getAttribute('capture')).toBe('user');
+        fireEvent.change(input, { target: { files: [new File(['me'], 'me.jpg', { type: 'image/jpeg' })] } });
+
+        await screen.findByRole('heading', { name: 'Go to room 1. What is it called?' });
+        const [[target, init]] = posts;
+        expect(target).toBe('/api/v1/capture/selfie');
+        expect((init.headers as Record<string, string>)['X-Capture-Token']).toBe('secret-token');
+        expect((init.body as FormData).get('file')).toBeInstanceOf(File);
+    });
 
     it('walks from a named room through its corners and uploads them with the new room details', async () => {
         const uploads: FormData[] = [];
