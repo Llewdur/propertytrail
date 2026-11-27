@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Restore proof (standards docs/backup-and-restore.md section 2.1): downloads the newest database
+# archive from R2, decrypts it and loads it into the pre-created scratch database, never the app's own.
+# Run weekly from the ubuntu crontab:
+#   40 3 * * 6 /var/www/propertytrail/current/bin/propertytrail-restore-check 2>&1 | logger -t propertytrail-restore-check
+set -euo pipefail
+umask 077
+
+APP_DIR="${APP_DIR:-/var/www/propertytrail}"
+ENV_FILE="$APP_DIR/shared/.env"
+MAX_AGE_HOURS=48
+
+env_get() { sed -n "s/^$1=//p" "$ENV_FILE" | head -1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"; }
+
+fail() {
+  echo "ERROR: $1" >&2
+  exit 1
+}
+
+LIVE_DB="$(env_get DB_DATABASE)"
+SCRATCH_DB="$(env_get DB_RESTORE_CHECK_DATABASE)"
+[ -n "$SCRATCH_DB" ] || fail "DB_RESTORE_CHECK_DATABASE is empty in $ENV_FILE."
+[ "$SCRATCH_DB" != "$LIVE_DB" ] || fail "DB_RESTORE_CHECK_DATABASE names the live database; refusing to empty it."
+
+BACKUP_PASSPHRASE="$(env_get BACKUP_ARCHIVE_PASSWORD)"
+[ -n "$BACKUP_PASSPHRASE" ] || fail "BACKUP_ARCHIVE_PASSWORD is empty in $ENV_FILE."
+export BACKUP_PASSPHRASE
+
+# No rclone config file and no cascade notices, so the log holds only the result.
+export RCLONE_CONFIG=/dev/null
+export PGOPTIONS='--client-min-messages=warning'
+export RCLONE_CONFIG_R2_TYPE=s3
+export RCLONE_CONFIG_R2_PROVIDER=Cloudflare
+RCLONE_CONFIG_R2_ACCESS_KEY_ID="$(env_get AWS_ACCESS_KEY_ID)"
+RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$(env_get AWS_SECRET_ACCESS_KEY)"
+RCLONE_CONFIG_R2_ENDPOINT="$(env_get AWS_ENDPOINT)"
+export RCLONE_CONFIG_R2_ACCESS_KEY_ID RCLONE_CONFIG_R2_SECRET_ACCESS_KEY RCLONE_CONFIG_R2_ENDPOINT
+export RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+REMOTE="r2:$(env_get AWS_BUCKET)/backups"
+
+# The plaintext dump stays inside the app's own storage and is removed on every exit.
+WORK="$APP_DIR/shared/storage/app/restore-check"
+rm -rf "$WORK"
+mkdir -p "$WORK"
+trap 'rm -rf "$WORK"' EXIT
+
+NEWEST="$(rclone lsf "$REMOTE" --files-only --include 'propertytrail-*.sql.enc' | sort | tail -n 1)"
+[ -n "$NEWEST" ] || fail "no database archive in R2."
+
+STAMP="${NEWEST#propertytrail-}"
+STAMP="${STAMP%.sql.enc}"
+TAKEN="$(date -u -d "${STAMP:0:4}-${STAMP:4:2}-${STAMP:6:2} ${STAMP:9:2}:${STAMP:11:2}:${STAMP:13:2}" +%s)"
+AGE_HOURS=$((($(date -u +%s) - TAKEN) / 3600))
+[ "$AGE_HOURS" -le "$MAX_AGE_HOURS" ] || fail "the newest archive in R2 is $AGE_HOURS hours old."
+
+rclone copyto "$REMOTE/$NEWEST" "$WORK/archive.enc"
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_PASSPHRASE \
+  -in "$WORK/archive.enc" -out "$WORK/dump.sql" || fail "$NEWEST does not decrypt."
+
+PGPASSWORD="$(env_get DB_PASSWORD)"
+export PGPASSWORD
+DB_USER="$(env_get DB_USERNAME)"
+scratch() { psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 --host=127.0.0.1 --username="$DB_USER" --dbname="$SCRATCH_DB" "$@"; }
+
+scratch --command='DROP SCHEMA public CASCADE' --command='CREATE SCHEMA public'
+scratch --file="$WORK/dump.sql" > /dev/null
+
+TABLES="$(scratch --command="SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")"
+MIGRATIONS="$(scratch --command='SELECT count(*) FROM migrations')"
+scratch --command='SELECT count(*) FROM users' > /dev/null
+[ "$MIGRATIONS" -gt 0 ] || fail "the restored database has no migration rows."
+
+# The scratch copy holds production data, so it is emptied again once the proof has passed.
+scratch --command='DROP SCHEMA public CASCADE' --command='CREATE SCHEMA public'
+
+echo "OK: restored $NEWEST ($AGE_HOURS hours old): $TABLES tables, $MIGRATIONS migrations."
