@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Encrypted database and .env backup on the Xneelo box (standards docs/backup-and-restore.md, box-level cron).
+# Writes to shared/storage/app/backups only; the box-level backup-ship job copies the archives to R2.
+# Run nightly from the ubuntu crontab:
+#   5 2 * * * /var/www/propertytrail/current/bin/propertytrail-backup 2>&1 | logger -t propertytrail-backup
+set -euo pipefail
+umask 077
+
+APP_DIR="${APP_DIR:-/var/www/propertytrail}"
+ENV_FILE="$APP_DIR/shared/.env"
+DEST="$APP_DIR/shared/storage/app/backups"
+KEEP=14
+
+env_get() { sed -n "s/^$1=//p" "$ENV_FILE" | head -1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"; }
+
+fail() {
+  echo "ERROR: $1" >&2
+  exit 1
+}
+
+BACKUP_PASSPHRASE="$(env_get BACKUP_ARCHIVE_PASSWORD)"
+[ -n "$BACKUP_PASSPHRASE" ] || fail "BACKUP_ARCHIVE_PASSWORD is empty in $ENV_FILE; refusing to write an unencrypted backup."
+export BACKUP_PASSPHRASE
+
+mkdir -p "$DEST"
+
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+DB_ARCHIVE="$DEST/propertytrail-$STAMP.sql.enc"
+ENV_ARCHIVE="$DEST/propertytrail-$STAMP.env.enc"
+VERIFY="$(mktemp)"
+COMPLETE=0
+
+# A failed run leaves no archive behind for backup-ship to copy off-box.
+cleanup() {
+  rm -f "$VERIFY"
+  [ "$COMPLETE" = 1 ] || rm -f "$DB_ARCHIVE" "$ENV_ARCHIVE"
+}
+trap cleanup EXIT
+
+encrypt() { openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE; }
+decrypt() { openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_PASSPHRASE -in "$1" -out "$VERIFY"; }
+
+PGPASSWORD="$(env_get DB_PASSWORD)" pg_dump --host=127.0.0.1 --username="$(env_get DB_USERNAME)" \
+  --dbname="$(env_get DB_DATABASE)" --no-owner --no-privileges --format=plain \
+  | encrypt > "$DB_ARCHIVE"
+
+# APP_KEY is not in a database dump, and a restore without it cannot read encrypted columns.
+encrypt < "$ENV_FILE" > "$ENV_ARCHIVE"
+
+decrypt "$DB_ARCHIVE" || fail "the database archive does not decrypt."
+grep -q '^-- PostgreSQL database dump complete' "$VERIFY" || fail "the database archive is not a complete Postgres dump."
+grep -q '^COPY ' "$VERIFY" || fail "the database archive holds no table data."
+
+decrypt "$ENV_ARCHIVE" || fail "the environment archive does not decrypt."
+grep -q '^APP_KEY=' "$VERIFY" || fail "the environment archive has no APP_KEY."
+
+COMPLETE=1
+
+for pattern in sql.enc env.enc; do
+  ls -1t "$DEST"/propertytrail-*."$pattern" | tail -n +$((KEEP + 1)) | xargs -r rm -f
+done
+
+echo "OK: $(basename "$DB_ARCHIVE") written and decrypt-verified."
