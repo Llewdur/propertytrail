@@ -67,6 +67,30 @@ message = "Assigning `mixed` type to a variable may lead to unexpected behavior.
 count = 1
 
 [[issues]]
+file = "app/Adapters/FleetPushAdapter.php"
+code = "invalid-type-cast"
+message = "Casting `mixed` to `array`."
+count = 1
+
+[[issues]]
+file = "app/Adapters/FleetPushAdapter.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Adapters/FleetPushAdapter.php"
+code = "mixed-operand"
+message = "Casting `mixed` to `bool`."
+count = 1
+
+[[issues]]
+file = "app/Adapters/FleetPushAdapter.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Adapters\FleetPushAdapter::notifyParticipant`. Saw type `nonnull`.'
+count = 1
+
+[[issues]]
 file = "app/Adapters/PulseAdapter.php"
 code = "possibly-invalid-argument"
 message = "Possible argument type mismatch for argument #1 of `rescue`: expected `DogShelter`, but possibly received `(closure(): void)`."
@@ -397,6 +421,42 @@ message = 'Property `App\Models\AuditLog::$casts` has an incompatible type decla
 count = 1
 
 [[issues]]
+file = "app/Models/AuditLog.php"
+code = "less-specific-argument"
+message = 'Argument type mismatch for argument #3 of `App\Models\AuditLog::leaseIdFor`: expected `array<string, mixed>`, but provided type `array<array-key, mixed>` is less specific.'
+count = 1
+
+[[issues]]
+file = "app/Models/AuditLog.php"
+code = "less-specific-argument"
+message = 'Argument type mismatch for argument #4 of `App\Models\AuditLog::leaseIdFor`: expected `array<string, mixed>`, but provided type `array<array-key, mixed>` is less specific.'
+count = 1
+
+[[issues]]
+file = "app/Models/AuditLog.php"
+code = "redundant-cast"
+message = "Redundant cast to `(string)`: the expression already has this type."
+count = 1
+
+[[issues]]
+file = "app/Models/CaptureReminder.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 3
+
+[[issues]]
+file = "app/Models/CaptureReminder.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Models\CaptureReminder::findFor`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Models/CaptureReminder.php"
+code = "non-documented-method"
+message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
+count = 1
+
+[[issues]]
 file = "app/Models/Concerns/Auditable.php"
 code = "mixed-assignment"
 message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
@@ -615,7 +675,25 @@ count = 1
 [[issues]]
 file = "app/Repositories/AuditLogRepository.php"
 code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\AuditLog>` for function `App\Repositories\AuditLogRepository::forActor`.'
+count = 1
+
+[[issues]]
+file = "app/Repositories/AuditLogRepository.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\AuditLog>` for function `App\Repositories\AuditLogRepository::forLease`.'
+count = 1
+
+[[issues]]
+file = "app/Repositories/AuditLogRepository.php"
+code = "less-specific-return-statement"
 message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\AuditLog>` for function `App\Repositories\AuditLogRepository::recent`.'
+count = 1
+
+[[issues]]
+file = "app/Repositories/AuditLogRepository.php"
+code = "less-specific-return-statement"
+message = 'Returned type `Illuminate\Support\Collection<int, stdClass>` is less specific than the declared return type `Illuminate\Database\Eloquent\Collection<int, App\Models\AuditLog>` for function `App\Repositories\AuditLogRepository::tenantActions`.'
 count = 1
 
 [[issues]]
@@ -748,7 +826,7 @@ count = 1
 file = "app/Services/CaptureLinkService.php"
 code = "mixed-method-access"
 message = "Attempting to access a method on a non-object type (`mixed`)."
-count = 3
+count = 2
 
 [[issues]]
 file = "app/Services/CaptureLinkService.php"
@@ -785,6 +863,36 @@ file = "app/Services/CaptureLinkService.php"
 code = "non-documented-method"
 message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
 count = 1
+
+[[issues]]
+file = "app/Services/CaptureNotificationService.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `App\Services\CaptureNotificationService::reminder`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureReminderService.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #2 of `App\Services\CaptureReminderService::stopReason`: expected `App\Models\CaptureLink|null`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "app/Services/CaptureReminderService.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 2
+
+[[issues]]
+file = "app/Services/CaptureReminderService.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 13
+
+[[issues]]
+file = "app/Services/CaptureReminderService.php"
+code = "non-documented-method"
+message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
+count = 3
 
 [[issues]]
 file = "app/Services/ComparisonService.php"
@@ -1066,6 +1174,30 @@ count = 1
 file = "app/Services/SigningService.php"
 code = "non-documented-method"
 message = 'Ambiguous method call to `allorganisations` on class `Illuminate\Database\Eloquent\Builder`.'
+count = 1
+
+[[issues]]
+file = "app/Support/AuditHistory.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "app/Support/AuditHistory.php"
+code = "redundant-cast"
+message = "Redundant cast to `(string)`: the expression already has this type."
+count = 2
+
+[[issues]]
+file = "app/Support/AuditHistory.php"
+code = "redundant-docblock-type"
+message = "Redundant docblock type for variable `$new`."
+count = 1
+
+[[issues]]
+file = "app/Support/AuditHistory.php"
+code = "redundant-docblock-type"
+message = "Redundant docblock type for variable `$old`."
 count = 1
 
 [[issues]]

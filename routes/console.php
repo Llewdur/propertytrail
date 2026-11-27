@@ -16,3 +16,5 @@ Schedule::call(fn() => app(EntitlementService::class)->flushOutbox())
     ->withoutOverlapping();
 
 Schedule::command('model:prune', ['--model' => [AuthEvent::class]])->daily();
+
+Schedule::command('capture:send-reminders')->hourly()->withoutOverlapping();

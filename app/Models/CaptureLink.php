@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $lease_id
  * @property string $phase
  * @property string $token_hash
+ * @property string|null $token_encrypted the plain token, encrypted, so a reminder can carry the link
  * @property \Illuminate\Support\Carbon $expires_at
  * @property \Illuminate\Support\Carbon|null $revoked_at
  * @property \Illuminate\Support\Carbon|null $last_used_at
@@ -33,16 +34,21 @@ final class CaptureLink extends Model
         'lease_id',
         'phase',
         'token_hash',
+        'token_encrypted',
         'expires_at',
         'revoked_at',
         'last_used_at',
         'created_by_user_id',
     ];
 
+    /** @var array<array-key, string> */
+    protected $hidden = ['token_hash', 'token_encrypted'];
+
     /** @return array<string, string> */
     protected function casts(): array
     {
         return [
+            'token_encrypted' => 'encrypted',
             'expires_at' => 'datetime',
             'revoked_at' => 'datetime',
             'last_used_at' => 'datetime',

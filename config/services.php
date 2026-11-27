@@ -63,6 +63,13 @@ return [
         'sender_name' => env('MAIL_FROM_NAME', 'PropertyTrail'),
     ],
 
+    // Fleet Push. Off, capture is not gated on notifications and no reminder is pushed.
+    'push' => [
+        'enabled' => (bool) env('FLEET_PUSH_ENABLED', false),
+        'url' => env('FLEET_PUSH_URL', 'https://push.zekini.co.za'),
+        'token' => env('FLEET_PUSH_TOKEN'),
+    ],
+
     // The browser SDK. No write key means no tag at all, so only the production host has one.
     'pulse' => [
         'api_base' => env('PULSE_API_BASE') ?: 'https://pulse.zekini.co.za',

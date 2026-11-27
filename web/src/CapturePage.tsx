@@ -16,8 +16,10 @@ type Capture = {
     selfie_taken: boolean;
     passkey_registered: boolean;
     locked: boolean;
+    notifications?: Notifications;
     areas: Area[];
 };
+type Notifications = { required: boolean; status: 'off' | 'pending' | 'subscribed' | 'fallback'; opt_in_url: string | null };
 
 type Props = { apiBase: string; token: string };
 
@@ -116,6 +118,8 @@ export default function CapturePage({ apiBase, token }: Props) {
     const unlockKey = `capture-unlock:${token}`;
     const [unlock, setUnlock] = useState<string | null>(() => stored(() => window.sessionStorage, unlockKey));
     const [passkeyDeclined, setPasskeyDeclined] = useState(false);
+    const [notifyStep, setNotifyStep] = useState<'ask' | 'whatsapp'>('ask');
+    const [phone, setPhone] = useState('');
     const syncing = useRef(false);
 
     const capturing = (extra: Record<string, string> = {}): Record<string, string> => ({
@@ -348,6 +352,37 @@ export default function CapturePage({ apiBase, token }: Props) {
         }
     }
 
+    /** The phone cannot take notifications, so reminders go to WhatsApp. */
+    async function remindOnWhatsApp(): Promise<void> {
+        if (saving) {
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            const response = await fetch(`${apiBase}/capture/notifications/fallback`, {
+                method: 'POST',
+                credentials: 'omit',
+                headers: capturing({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ phone: phone.trim() }),
+            });
+            const payload = (await response.json().catch(() => null)) as { data?: Notifications; message?: string } | null;
+
+            if (!response.ok || payload?.data === undefined) {
+                setError(payload?.message ?? 'That number was not saved. Try again.');
+                return;
+            }
+
+            setError(null);
+            setCapture((current) => (current === null ? current : { ...current, notifications: payload.data }));
+        } catch {
+            setError('That number was not saved. Check your connection and try again.');
+        } finally {
+            setSaving(false);
+        }
+    }
+
     function remember(next: string): void {
         stored(() => window.sessionStorage, unlockKey, next);
         setUnlock(next);
@@ -524,6 +559,67 @@ export default function CapturePage({ apiBase, token }: Props) {
                         First, a quick selfie to show who took the photos. Only the property&apos;s staff can see it.
                     </p>
                 )}
+            </Screen>
+        );
+    }
+
+    if (capture.notifications?.status === 'pending') {
+        if (notifyStep === 'whatsapp') {
+            return (
+                <Screen
+                    onStop={stop}
+                    notice={status}
+                    actions={
+                        <>
+                            <button
+                                type="button"
+                                className={PRIMARY}
+                                disabled={saving || phone.trim() === ''}
+                                onClick={() => void remindOnWhatsApp()}
+                            >
+                                {saving ? 'Saving…' : 'Remind me on WhatsApp'}
+                            </button>
+                            <button type="button" className={LINK} onClick={() => setNotifyStep('ask')}>Back</button>
+                        </>
+                    }
+                >
+                    <Request>Your WhatsApp number</Request>
+                    <p>We will remind you there until your photos are done.</p>
+                    <input
+                        className="w-full rounded-lg border border-slate-300 p-3 text-lg"
+                        aria-label="WhatsApp number"
+                        inputMode="tel"
+                        maxLength={16}
+                        placeholder="+27821234567"
+                        value={phone}
+                        onChange={(event) => setPhone(event.target.value)}
+                    />
+                </Screen>
+            );
+        }
+
+        return (
+            <Screen
+                onStop={stop}
+                notice={status}
+                actions={
+                    <>
+                        {capture.notifications.opt_in_url !== null && (
+                            <a className={`${PRIMARY} text-center`} href={capture.notifications.opt_in_url} target="_blank" rel="noopener noreferrer">
+                                Turn on notifications
+                            </a>
+                        )}
+                        <button type="button" className={SECONDARY} onClick={() => void load()}>I have turned them on</button>
+                        <button type="button" className={LINK} onClick={() => setNotifyStep('whatsapp')}>I can&apos;t turn them on</button>
+                    </>
+                }
+            >
+                <Request>Turn on notifications</Request>
+                <p>We remind you until every room is photographed. Keep this page open and come back here after.</p>
+                <p className="text-sm text-slate-500">
+                    On an iPhone, the next page shows you how to add it to your Home Screen first. Said no by mistake? Turn
+                    notifications back on in your browser&apos;s settings.
+                </p>
             </Screen>
         );
     }
