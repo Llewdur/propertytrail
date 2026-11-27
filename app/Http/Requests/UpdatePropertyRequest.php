@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Requests;
 
+use App\Support\Tenancy\CurrentOrganisation;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 final class UpdatePropertyRequest extends FormRequest
 {
@@ -12,6 +14,14 @@ final class UpdatePropertyRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'site_id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                Rule::exists('sites', 'id')->where('organisation_id', app(CurrentOrganisation::class)->id() ?? 0),
+            ],
+            'owning_entity_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'owning_entity_registration_number' => ['sometimes', 'nullable', 'string', 'max:64'],
             'name' => ['sometimes', 'string', 'max:255'],
             'reference_code' => ['sometimes', 'nullable', 'string', 'max:64'],
             'property_type' => [

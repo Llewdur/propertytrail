@@ -37,11 +37,10 @@ final class AttachableResolver
             return null;
         }
 
-        $room = $this->rooms->find((int) $data['area_room_id']);
         $lease = $this->leases->find($id);
 
-        return $room === null || $room->property_id !== $lease?->property_id
-            ? 'Room does not belong to the lease property.'
+        return $lease === null || !$this->rooms->coveredByLease($lease)->contains('id', (int) $data['area_room_id'])
+            ? 'This lease does not cover that room or area.'
             : null;
     }
 

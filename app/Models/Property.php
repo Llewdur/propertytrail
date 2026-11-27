@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property int $id
  * @property int $organisation_id
+ * @property int|null $site_id
  */
 final class Property extends Model
 {
@@ -27,6 +28,9 @@ final class Property extends Model
     /** @var array<int, string> */
     protected $fillable = [
         'organisation_id',
+        'site_id',
+        'owning_entity_name',
+        'owning_entity_registration_number',
         'name',
         'reference_code',
         'property_type',

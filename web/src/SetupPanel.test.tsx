@@ -136,6 +136,39 @@ describe('SetupPanel', () => {
         });
     });
 
+    it('adds a site and saves the areas a lease covers', async () => {
+        const fetchMock = mockFetch((url) => {
+            if (url.endsWith('/leases/13/areas')) {
+                return respond({ data: { available: [room, { ...room, id: 21, name: 'Garden' }], covered_ids: [11], is_default: true } });
+            }
+
+            if (url.endsWith('/properties')) {
+                return respond({ data: [property] });
+            }
+
+            if (url.endsWith('/properties/7/leases')) {
+                return respond({ data: [lease] });
+            }
+
+            return respond({ data: [] });
+        });
+        render(<SetupPanel apiBase="/api/v1" organisationId={3} csrfToken="csrf-123" />);
+
+        fireEvent.change(screen.getByLabelText('Site name'), { target: { value: 'Oak Court' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add site' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Covered areas for L-100' }));
+        fireEvent.click(await screen.findByLabelText('Garden'));
+        fireEvent.click(screen.getByRole('button', { name: 'Save covered areas' }));
+        await screen.findByText('Saved.');
+
+        const body = (suffix: string, method: string) => JSON.parse(String(fetchMock.mock.calls.find(
+            ([url, init]) => String(url).endsWith(suffix) && init?.method === method,
+        )?.[1]?.body));
+
+        expect(body('/sites', 'POST')).toEqual({ name: 'Oak Court', site_type: 'standalone_house' });
+        expect(body('/leases/13/areas', 'PUT')).toEqual({ area_ids: [11, 21] });
+    });
+
     it('creates rooms and leases against the selected property', async () => {
         render(<SetupPanel apiBase="/api/v1" organisationId={3} csrfToken="csrf-123" />);
         await screen.findAllByText(/Maple House/);

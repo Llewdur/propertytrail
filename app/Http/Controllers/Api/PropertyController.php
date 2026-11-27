@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StorePropertyRequest;
 use App\Http\Requests\UpdatePropertyRequest;
 use App\Models\Property;
+use App\Models\Site;
 use App\Models\User;
 use App\Repositories\PropertyRepository;
 use Illuminate\Http\JsonResponse;
@@ -68,6 +69,12 @@ final class PropertyController extends Controller
 
         /** @var array<string, mixed> $data */
         $data = $request->validated();
+
+        // Moving a unit changes who can see a site's areas.
+        if (array_key_exists('site_id', $data) && (int) $data['site_id'] !== (int) $model->site_id) {
+            $this->authorize('manage', Site::class);
+        }
+
         $this->factory->update($model, $data);
 
         return response()->json(['data' => $model->load('rooms')]);

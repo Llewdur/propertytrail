@@ -65,6 +65,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
     const [propertyId, setPropertyId] = useState<number | null>(null);
     const [rooms, setRooms] = useState<Room[]>([]);
     const [leases, setLeases] = useState<Lease[]>([]);
+    const [coveredAreas, setCoveredAreas] = useState<Room[] | null>(null);
     const [leaseId, setLeaseId] = useState<number | null>(null);
     const [groups, setGroups] = useState<Group[]>([]);
     const [tab, setTab] = useState<'documents' | 'leases'>('documents');
@@ -138,6 +139,34 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
             })
             .catch(() => setError('Could not load leases.'));
     }, [apiBase, headers, propertyId]);
+
+    // A photo may only be filed under an area the chosen lease covers.
+    useEffect(() => {
+        setRoomId(null);
+        setCoveredAreas(null);
+
+        if (leaseId === null) {
+            return;
+        }
+
+        let isCurrent = true;
+        fetch(`${apiBase}/leases/${leaseId}/areas`, { headers: headers() })
+            .then((response) => jsonOrThrow<{ data: { available: Room[]; covered_ids: number[] } }>(response))
+            .then(({ data }) => {
+                if (isCurrent) {
+                    setCoveredAreas(data.available.filter((area) => data.covered_ids.includes(area.id)));
+                }
+            })
+            .catch(() => {
+                if (isCurrent) {
+                    setError('Could not load the lease areas.');
+                }
+            });
+
+        return () => {
+            isCurrent = false;
+        };
+    }, [apiBase, headers, leaseId, refreshKey]);
 
     useEffect(() => {
         void loadPhotos();
@@ -228,7 +257,7 @@ export default function LeasePhotosPanel({ apiBase, organisationId, refreshKey =
                         onChange={(event) => setRoomId(event.target.value === '' ? null : Number(event.target.value))}
                     >
                         <option value="">Property level</option>
-                        {rooms.map((room) => (
+                        {(coveredAreas ?? rooms).map((room) => (
                             <option key={room.id} value={room.id}>{room.name}</option>
                         ))}
                     </select>

@@ -13,8 +13,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * @property int $id
- * @property int $property_id
+ * @property int|null $property_id
+ * @property int|null $site_id
  * @property string $name
+ * @property string $room_type
  * @property int $sort_order
  */
 final class AreaRoom extends Model
@@ -30,6 +32,7 @@ final class AreaRoom extends Model
     protected $fillable = [
         'organisation_id',
         'property_id',
+        'site_id',
         'name',
         'room_type',
         'sort_order',

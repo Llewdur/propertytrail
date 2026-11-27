@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\InspectionReportController;
 use App\Http\Controllers\Api\InspectionSignatureController;
 use App\Http\Controllers\Api\InspectionTemplateController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\LeaseAreaController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
 use App\Http\Controllers\Api\OrganisationController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Api\PilotEnquiryController;
 use App\Http\Controllers\Api\PropertyAssignmentController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\PublicSigningController;
+use App\Http\Controllers\Api\SiteController;
 use App\Http\Controllers\Api\SystemController;
 use Illuminate\Support\Facades\Route;
 
@@ -64,6 +66,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         'destroy',
     ])->whereNumber(['property', 'user']);
 
+    Route::get('sites', [SiteController::class, 'index']);
+    Route::post('sites', [SiteController::class, 'store']);
+    Route::post('sites/{site}/areas', [SiteController::class, 'storeArea'])->whereNumber('site');
+    Route::delete('sites/{site}/areas/{area}', [SiteController::class, 'destroyArea'])->whereNumber(['site', 'area']);
+
     Route::get('evidence', [EvidenceController::class, 'index']);
     Route::post('evidence/upload', [EvidenceController::class, 'upload']);
     Route::get('inspections', [InspectionController::class, 'index']);
@@ -76,6 +83,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('evidence/{evidence}', [EvidenceController::class, 'show'])->whereNumber('evidence');
         Route::get('evidence/{evidence}/download', EvidenceDownloadController::class)->whereNumber('evidence');
         Route::get('leases/{lease}', [LeaseController::class, 'show']);
+        Route::get('leases/{lease}/areas', [LeaseAreaController::class, 'show'])->whereNumber('lease');
         Route::get('inspections/{inspection}', [InspectionController::class, 'show'])->whereNumber('inspection');
         Route::get('inspections/{inspection}/deliveries', [InspectionDeliveryController::class, 'index'])->whereNumber(
             'inspection',
@@ -133,6 +141,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('properties/{property}/rooms', [AreaRoomController::class, 'store']);
         Route::post('properties/{property}/leases', [LeaseController::class, 'store']);
         Route::put('rooms/{room}', [AreaRoomController::class, 'update']);
+        Route::put('leases/{lease}/areas', [LeaseAreaController::class, 'update'])->whereNumber('lease');
         Route::delete('rooms/{room}', [AreaRoomController::class, 'destroy']);
     });
 

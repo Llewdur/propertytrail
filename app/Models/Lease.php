@@ -9,6 +9,7 @@ use App\Models\Concerns\BelongsToOrganisation;
 use App\Models\Concerns\OrganisationScoped;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 /**
@@ -50,6 +51,12 @@ final class Lease extends Model
     public function property(): BelongsTo
     {
         return $this->belongsTo(Property::class);
+    }
+
+    /** @return BelongsToMany<AreaRoom, $this> */
+    public function coveredAreas(): BelongsToMany
+    {
+        return $this->belongsToMany(AreaRoom::class, 'lease_areas')->withTimestamps();
     }
 
     /** @return MorphMany<EvidenceLink, $this> */
