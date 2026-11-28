@@ -21,6 +21,8 @@ use App\Http\Controllers\Api\LeaseCaptureSelfieController;
 use App\Http\Controllers\Api\LeaseCaptureSignOffController;
 use App\Http\Controllers\Api\LeaseController;
 use App\Http\Controllers\Api\LeasePhotoController;
+use App\Http\Controllers\Api\LeaseSharedPhotoController;
+use App\Http\Controllers\Api\LeaseTurnoverController;
 use App\Http\Controllers\Api\OrganisationController;
 use App\Http\Controllers\Api\PilotEnquiryController;
 use App\Http\Controllers\Api\PropertyAssignmentController;
@@ -31,6 +33,7 @@ use App\Http\Controllers\Api\PublicCaptureNoteController;
 use App\Http\Controllers\Api\PublicCaptureNotificationController;
 use App\Http\Controllers\Api\PublicCapturePasskeyController;
 use App\Http\Controllers\Api\PublicCaptureSelfieController;
+use App\Http\Controllers\Api\PublicCaptureSharedPhotoController;
 use App\Http\Controllers\Api\PublicCaptureSignOffController;
 use App\Http\Controllers\Api\PublicSigningController;
 use App\Http\Controllers\Api\RoomReorganiseController;
@@ -62,6 +65,13 @@ Route::middleware('throttle:120,1,capture')->group(function (): void {
     Route::post('capture/sign-off', [PublicCaptureSignOffController::class, 'store']);
     Route::get('capture/sign-off/copy', [PublicCaptureSignOffController::class, 'copy']);
     Route::get('capture/history', [PublicCaptureHistoryController::class, 'index']);
+    Route::get('capture/shared-photos/{shared}', [PublicCaptureSharedPhotoController::class, 'photo'])->whereNumber(
+        'shared',
+    );
+    Route::post('capture/shared-photos/{shared}/response', [
+        PublicCaptureSharedPhotoController::class,
+        'respond',
+    ])->whereNumber('shared');
 });
 
 Route::middleware('throttle:6,1')->group(function (): void {
@@ -198,6 +208,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
             LeaseCapturePasskeyController::class,
             'destroy',
         ])->whereNumber('lease');
+        Route::get('leases/{lease}/shared-photos', [LeaseSharedPhotoController::class, 'index'])->whereNumber('lease');
+        Route::get('leases/{lease}/shared-photos/{shared}', [
+            LeaseSharedPhotoController::class,
+            'photo',
+        ])->whereNumber(['lease', 'shared']);
     });
 
     Route::middleware('property.access:update')->group(function (): void {
@@ -205,6 +220,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('properties/{property}/leases', [LeaseController::class, 'store']);
         Route::put('rooms/{room}', [AreaRoomController::class, 'update']);
         Route::put('leases/{lease}/areas', [LeaseAreaController::class, 'update'])->whereNumber('lease');
+        Route::post('leases/{lease}/move-out', [LeaseTurnoverController::class, 'moveOut'])->whereNumber('lease');
+        // Sharing an earlier tenant's photo is a manager's call, like editing the lease.
+        Route::post('leases/{lease}/shared-photos', [LeaseSharedPhotoController::class, 'store'])->whereNumber('lease');
+        Route::delete('leases/{lease}/shared-photos/{shared}', [
+            LeaseSharedPhotoController::class,
+            'destroy',
+        ])->whereNumber(['lease', 'shared']);
         Route::delete('rooms/{room}', [AreaRoomController::class, 'destroy']);
         Route::post('rooms/{room}/merge', [RoomReorganiseController::class, 'merge'])->whereNumber('room');
         Route::post('rooms/{room}/split', [RoomReorganiseController::class, 'split'])->whereNumber('room');

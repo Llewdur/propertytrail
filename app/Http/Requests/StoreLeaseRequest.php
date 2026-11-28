@@ -17,6 +17,8 @@ final class StoreLeaseRequest extends FormRequest
             'start_date' => ['required', 'date_format:Y-m-d'],
             'end_date' => ['nullable', 'date_format:Y-m-d', 'after:start_date'],
             'status' => ['sometimes', 'string', 'in:active,expired,terminated'],
+            // The tenancy this one follows: its room list is reused, nothing else.
+            'previous_lease_id' => ['sometimes', 'nullable', 'integer'],
         ];
     }
 }

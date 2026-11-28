@@ -46,10 +46,10 @@ final class LeaseCaptureLinkController extends Controller
 
     public function store(CaptureLinkRequest $request, int $lease): JsonResponse
     {
-        $model = $this->leases->find($lease);
+        $model = $this->current($lease);
 
-        if ($model === null) {
-            return $this->notFound();
+        if (!$model instanceof Lease) {
+            return $model;
         }
 
         $issued = $this->links->issue($model, (string) $request->validated('phase'), $this->userId());
@@ -62,10 +62,10 @@ final class LeaseCaptureLinkController extends Controller
 
     public function send(SendCaptureLinkRequest $request, int $lease): JsonResponse
     {
-        $model = $this->leases->find($lease);
+        $model = $this->current($lease);
 
-        if ($model === null) {
-            return $this->notFound();
+        if (!$model instanceof Lease) {
+            return $model;
         }
 
         $channels = $this->channels($model, $request->validated('email'), $request->validated('phone'));
@@ -147,6 +147,20 @@ final class LeaseCaptureLinkController extends Controller
         $id = Auth::id();
 
         return $id === null ? null : (int) $id;
+    }
+
+    /** The lease a new link may go to, or the refusal: none for a tenant who moved out. */
+    private function current(int $lease): Lease|JsonResponse
+    {
+        $model = $this->leases->find($lease);
+
+        return match (true) {
+            $model === null => $this->notFound(),
+            $model->hasMovedOut() => response()->json([
+                'message' => 'This tenant has moved out. Start a new tenancy to send a capture link.',
+            ], Response::HTTP_CONFLICT),
+            default => $model,
+        };
     }
 
     private function notFound(): JsonResponse

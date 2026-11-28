@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 /**
+ * @property int $id
  * @property int $organisation_id
  * @property int $property_id
  * @property string $lease_reference
@@ -20,6 +21,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  * @property \Illuminate\Support\Carbon $start_date
  * @property \Illuminate\Support\Carbon|null $end_date
  * @property string $status
+ * @property int|null $previous_lease_id the tenancy this one follows on the same property
+ * @property \Illuminate\Support\Carbon|null $moved_out_at
  */
 final class Lease extends Model
 {
@@ -27,15 +30,19 @@ final class Lease extends Model
     use BelongsToOrganisation;
     use OrganisationScoped;
 
+    public const STATUS_ENDED = 'ended';
+
     /** @var array<int, string> */
     protected $fillable = [
         'organisation_id',
         'property_id',
+        'previous_lease_id',
         'lease_reference',
         'tenant_name',
         'start_date',
         'end_date',
         'status',
+        'moved_out_at',
     ];
 
     /** @return array<string, string> */
@@ -44,7 +51,13 @@ final class Lease extends Model
         return [
             'start_date' => 'date',
             'end_date' => 'date',
+            'moved_out_at' => 'datetime',
         ];
+    }
+
+    public function hasMovedOut(): bool
+    {
+        return $this->moved_out_at !== null;
     }
 
     /** @return BelongsTo<Property, $this> */

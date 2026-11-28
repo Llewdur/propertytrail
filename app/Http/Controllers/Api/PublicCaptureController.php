@@ -17,6 +17,7 @@ use App\Services\CaptureLinkService;
 use App\Services\CaptureNotificationService;
 use App\Services\CapturePasskeyService;
 use App\Services\CaptureSelfieService;
+use App\Services\SharedConditionPhotoService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -37,6 +38,7 @@ final class PublicCaptureController extends Controller
         private readonly CaptureSelfieService $selfies,
         private readonly CapturePasskeyService $passkeys,
         private readonly CaptureNotificationService $notifications,
+        private readonly SharedConditionPhotoService $shared,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -60,7 +62,15 @@ final class PublicCaptureController extends Controller
 
         // Until the phone unlocks, the link shows only enough to ask for the unlock.
         if ($locked) {
-            return $this->private(['data' => [...$header, 'tenant_name' => '', 'selfie_taken' => true, 'areas' => []]]);
+            return $this->private([
+                'data' => [
+                    ...$header,
+                    'tenant_name' => '',
+                    'selfie_taken' => true,
+                    'areas' => [],
+                    'shared_condition' => [],
+                ],
+            ]);
         }
 
         $photos = $this->links->photos($link)->orderBy('id')->get()->groupBy('area_room_id');
@@ -85,6 +95,8 @@ final class PublicCaptureController extends Controller
                 'selfie_taken' => $this->selfies->taken($link),
                 'notifications' => $this->notifications->state($link),
                 'areas' => $areas,
+                // Only what staff approved from an earlier tenancy, through an allow-list.
+                'shared_condition' => $this->shared->forTenant($link->lease_id),
             ],
         ]);
     }
