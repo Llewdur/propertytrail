@@ -124,6 +124,7 @@ it('shows only the lease scope to a tenant with no account', function (): void {
             'selfie_taken',
             'notifications',
             'areas',
+            'shared_condition',
         ])
         ->and($data['areas'])
         ->toBe([['id' => $this->room['id'], 'name' => 'Kitchen', 'photos' => []]]);
